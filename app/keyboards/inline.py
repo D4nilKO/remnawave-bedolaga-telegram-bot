@@ -747,38 +747,13 @@ def get_happ_cryptolink_keyboard(
                 url=final_redirect_link,
             )
         ])
-
-    buttons.extend([
-        [
-            InlineKeyboardButton(
-                text=texts.t("HAPP_PLATFORM_IOS", "🍎 iOS"),
-                callback_data="happ_download_ios",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t("HAPP_PLATFORM_ANDROID", "🤖 Android"),
-                callback_data="happ_download_android",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t("HAPP_PLATFORM_MACOS", "🖥️ Mac OS"),
-                callback_data="happ_download_macos",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t("HAPP_PLATFORM_WINDOWS", "💻 Windows"),
-                callback_data="happ_download_windows",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t("BACK_TO_MAIN_MENU_BUTTON", "⬅️ В главное меню"),
-                callback_data="back_to_menu",
-            )
-        ],
+    
+    # Add Back to main menu button
+    buttons.append([
+        InlineKeyboardButton(
+            text=texts.t("BACK_TO_MAIN_MENU_BUTTON", "⬅️ В главное меню"),
+            callback_data="back_to_menu",
+        )
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
