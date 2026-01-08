@@ -116,6 +116,10 @@ class ButtonConditions(BaseModel):
     has_autopay: Optional[bool] = Field(
         default=None, description="Автоплатёж включён"
     )
+    traffic_topup_enabled: Optional[bool] = Field(
+        default=None, description="Пополнение трафика включено"
+    )
+
 
     model_config = ConfigDict(extra="forbid")
 
