@@ -20,9 +20,6 @@ from app.utils.subscription_utils import (
 )
 import logging
 
-logger = logging.getLogger(__name__)
-
-
 async def get_main_menu_keyboard_async(
     db: AsyncSession,
     language: str = DEFAULT_LANGUAGE,
@@ -71,14 +68,14 @@ async def get_main_menu_keyboard_async(
                 now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
                 days_left = (subscription.end_date - now_utc).days
                 subscription_days_left = max(0, days_left)
-            
+
             # Трафик
             if hasattr(subscription, 'traffic_used_gb'):
                 traffic_used_gb = subscription.traffic_used_gb or 0.0
-            
+
             if hasattr(subscription, 'traffic_limit_gb') and subscription.traffic_limit_gb:
                 traffic_left_gb = max(0, subscription.traffic_limit_gb - (subscription.traffic_used_gb or 0))
-            
+
             # Автоплатеж
             if hasattr(subscription, 'autopay_enabled'):
                 has_autopay = subscription.autopay_enabled
@@ -90,12 +87,12 @@ async def get_main_menu_keyboard_async(
                 username = user.username
             elif hasattr(user, 'first_name') and user.first_name:
                 username = user.first_name
-            
+
             # Дни с регистрации
             if hasattr(user, 'created_at') and user.created_at:
                 now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
                 registration_days = (now_utc - user.created_at).days
-            
+
             # ID промо-группы
             if hasattr(user, 'promo_group_id'):
                 promo_group_id = user.promo_group_id
@@ -151,6 +148,9 @@ async def get_main_menu_keyboard_async(
         is_moderator=is_moderator,
         custom_buttons=custom_buttons,
     )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _get_localized_value(values, language: str, default_language: str = "en") -> str:
@@ -248,6 +248,7 @@ _LANGUAGE_DISPLAY_NAMES = {
     "vi-vn": "🇻🇳 Tiếng Việt",
 }
 
+
 def get_rules_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -256,6 +257,7 @@ def get_rules_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup
             InlineKeyboardButton(text=texts.RULES_DECLINE, callback_data="rules_decline")
         ]
     ])
+
 
 def get_privacy_policy_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
@@ -272,9 +274,10 @@ def get_privacy_policy_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeybo
         ]
     ])
 
+
 def get_channel_sub_keyboard(
-    channel_link: Optional[str],
-    language: str = DEFAULT_LANGUAGE,
+        channel_link: Optional[str],
+        language: str = DEFAULT_LANGUAGE,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
@@ -316,10 +319,10 @@ def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKe
 
 
 def get_language_selection_keyboard(
-    current_language: Optional[str] = None,
-    *,
-    include_back: bool = False,
-    language: str = DEFAULT_LANGUAGE,
+        current_language: Optional[str] = None,
+        *,
+        include_back: bool = False,
+        language: str = DEFAULT_LANGUAGE,
 ) -> InlineKeyboardMarkup:
     available_languages = settings.get_available_languages()
 
@@ -359,11 +362,11 @@ def get_language_selection_keyboard(
 
 
 def _build_text_main_menu_keyboard(
-    language: str,
-    texts,
-    *,
-    is_admin: bool,
-    is_moderator: bool,
+        language: str,
+        texts,
+        *,
+        is_admin: bool,
+        is_moderator: bool,
 ) -> InlineKeyboardMarkup:
     profile_text = texts.t("MENU_PROFILE", "👤 Личный кабинет")
     miniapp_url = settings.get_main_menu_miniapp_url()
@@ -412,18 +415,18 @@ def _build_text_main_menu_keyboard(
 
 
 def get_main_menu_keyboard(
-    language: str = DEFAULT_LANGUAGE,
-    is_admin: bool = False,
-    has_had_paid_subscription: bool = False,
-    has_active_subscription: bool = False,
-    subscription_is_active: bool = False,
-    balance_kopeks: int = 0,
-    subscription=None,
-    show_resume_checkout: bool = False,
-    has_saved_cart: bool = False,  # Новый параметр для отображения уведомления о сохраненной корзине
-    *,
-    is_moderator: bool = False,
-    custom_buttons: Optional[list[InlineKeyboardButton]] = None,
+        language: str = DEFAULT_LANGUAGE,
+        is_admin: bool = False,
+        has_had_paid_subscription: bool = False,
+        has_active_subscription: bool = False,
+        subscription_is_active: bool = False,
+        balance_kopeks: int = 0,
+        subscription=None,
+        show_resume_checkout: bool = False,
+        has_saved_cart: bool = False,  # Новый параметр для отображения уведомления о сохраненной корзине
+        *,
+        is_moderator: bool = False,
+        custom_buttons: Optional[list[InlineKeyboardButton]] = None,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
@@ -434,10 +437,11 @@ def get_main_menu_keyboard(
             is_admin=is_admin,
             is_moderator=is_moderator,
         )
-    
+
     if settings.DEBUG:
-        print(f"DEBUG KEYBOARD: language={language}, is_admin={is_admin}, has_had_paid={has_had_paid_subscription}, has_active={has_active_subscription}, sub_active={subscription_is_active}, balance={balance_kopeks}")
-    
+        print(
+            f"DEBUG KEYBOARD: language={language}, is_admin={is_admin}, has_had_paid={has_had_paid_subscription}, has_active={has_active_subscription}, sub_active={subscription_is_active}, balance={balance_kopeks}")
+
     safe_balance = balance_kopeks or 0
     if hasattr(texts, 'BALANCE_BUTTON') and safe_balance > 0:
         balance_button_text = texts.BALANCE_BUTTON.format(balance=texts.format_price(safe_balance))
@@ -446,7 +450,7 @@ def get_main_menu_keyboard(
             "BALANCE_BUTTON_DEFAULT",
             "💰 Баланс: {balance}",
         ).format(balance=texts.format_price(safe_balance))
-    
+
     keyboard: list[list[InlineKeyboardButton]] = []
     paired_buttons: list[InlineKeyboardButton] = []
 
@@ -509,19 +513,20 @@ def get_main_menu_keyboard(
 
         # Добавляем кнопку докупки трафика для лимитированных подписок
         if (
-            settings.BUY_TRAFFIC_BUTTON_VISIBLE
-            and settings.is_traffic_topup_enabled()
-            and not settings.is_traffic_topup_blocked()
-            and subscription
-            and not subscription.is_trial
-            and (subscription.traffic_limit_gb or 0) > 0
+                settings.BUY_TRAFFIC_BUTTON_VISIBLE
+                and settings.is_traffic_topup_enabled()
+                and not settings.is_traffic_topup_blocked()
+                and subscription
+                and not subscription.is_trial
+                and (subscription.traffic_limit_gb or 0) > 0
         ):
             paired_buttons.append(
-                InlineKeyboardButton(text=texts.t("BUY_TRAFFIC_BUTTON", "📈 Докупить трафик"), callback_data="buy_traffic")
+                InlineKeyboardButton(text=texts.t("BUY_TRAFFIC_BUTTON", "📈 Докупить трафик"),
+                                     callback_data="buy_traffic")
             )
 
     keyboard.append([InlineKeyboardButton(text=balance_button_text, callback_data="menu_balance")])
-    
+
     show_trial = not has_had_paid_subscription and not has_active_subscription
 
     show_buy = not has_active_subscription or not subscription_is_active
@@ -544,12 +549,12 @@ def get_main_menu_keyboard(
         subscription_buttons.append(
             InlineKeyboardButton(text=texts.MENU_TRIAL, callback_data="menu_trial")
         )
-    
+
     if show_buy:
         subscription_buttons.append(
             InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data="menu_buy")
         )
-    
+
     if subscription_buttons:
         paired_buttons.extend(subscription_buttons)
     if simple_purchase_button:
@@ -575,7 +580,7 @@ def get_main_menu_keyboard(
     paired_buttons.append(
         InlineKeyboardButton(text=texts.MENU_PROMOCODE, callback_data="menu_promocode")
     )
-    
+
     # Добавляем кнопку рефералов, только если программа включена
     if settings.is_referral_program_enabled():
         paired_buttons.append(
@@ -618,7 +623,7 @@ def get_main_menu_keyboard(
         )
 
     for i in range(0, len(paired_buttons), 2):
-        row = paired_buttons[i : i + 2]
+        row = paired_buttons[i: i + 2]
         keyboard.append(row)
 
     if settings.DEBUG:
@@ -638,16 +643,16 @@ def get_main_menu_keyboard(
         keyboard.append([
             InlineKeyboardButton(text="🧑‍⚖️ Модерация", callback_data="moderator_panel")
         ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_info_menu_keyboard(
-    language: str = DEFAULT_LANGUAGE,
-    show_privacy_policy: bool = False,
-    show_public_offer: bool = False,
-    show_faq: bool = False,
-    show_promo_groups: bool = False,
+        language: str = DEFAULT_LANGUAGE,
+        show_privacy_policy: bool = False,
+        show_public_offer: bool = False,
+        show_faq: bool = False,
+        show_promo_groups: bool = False,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
@@ -731,9 +736,9 @@ def get_happ_download_button_row(texts) -> Optional[List[InlineKeyboardButton]]:
 
 
 def get_happ_cryptolink_keyboard(
-    subscription_link: str,
-    language: str = DEFAULT_LANGUAGE,
-    redirect_link: Optional[str] = None,
+        subscription_link: str,
+        language: str = DEFAULT_LANGUAGE,
+        redirect_link: Optional[str] = None,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     final_redirect_link = redirect_link or get_happ_cryptolink_redirect_link(subscription_link)
@@ -747,7 +752,7 @@ def get_happ_cryptolink_keyboard(
                 url=final_redirect_link,
             )
         ])
-    
+
     # Add Back to main menu button
     buttons.append([
         InlineKeyboardButton(
@@ -763,9 +768,11 @@ def get_happ_download_platform_keyboard(language: str = DEFAULT_LANGUAGE) -> Inl
     texts = get_texts(language)
     buttons = [
         [InlineKeyboardButton(text=texts.t("HAPP_PLATFORM_IOS", "🍎 iOS"), callback_data="happ_download_ios")],
-        [InlineKeyboardButton(text=texts.t("HAPP_PLATFORM_ANDROID", "🤖 Android"), callback_data="happ_download_android")],
+        [InlineKeyboardButton(text=texts.t("HAPP_PLATFORM_ANDROID", "🤖 Android"),
+                              callback_data="happ_download_android")],
         [InlineKeyboardButton(text=texts.t("HAPP_PLATFORM_MACOS", "🖥️ Mac OS"), callback_data="happ_download_macos")],
-        [InlineKeyboardButton(text=texts.t("HAPP_PLATFORM_WINDOWS", "💻 Windows"), callback_data="happ_download_windows")],
+        [InlineKeyboardButton(text=texts.t("HAPP_PLATFORM_WINDOWS", "💻 Windows"),
+                              callback_data="happ_download_windows")],
         [InlineKeyboardButton(text=texts.BACK, callback_data="happ_download_close")],
     ]
 
@@ -790,9 +797,9 @@ def get_back_keyboard(language: str = DEFAULT_LANGUAGE, callback_data: str = "ba
 
 
 def get_server_status_keyboard(
-    language: str,
-    current_page: int,
-    total_pages: int,
+        language: str,
+        current_page: int,
+        total_pages: int,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard: list[list[InlineKeyboardButton]] = [
@@ -832,12 +839,11 @@ def get_server_status_keyboard(
 
 
 def get_insufficient_balance_keyboard(
-    language: str = DEFAULT_LANGUAGE,
-    resume_callback: str | None = None,
-    amount_kopeks: int | None = None,
-    has_saved_cart: bool = False,  # Новый параметр для указания наличия сохраненной корзины
+        language: str = DEFAULT_LANGUAGE,
+        resume_callback: str | None = None,
+        amount_kopeks: int | None = None,
+        has_saved_cart: bool = False,  # Новый параметр для указания наличия сохраненной корзины
 ) -> InlineKeyboardMarkup:
-
     texts = get_texts(language)
     keyboard = get_payment_methods_keyboard(amount_kopeks or 0, language)
 
@@ -846,9 +852,9 @@ def get_insufficient_balance_keyboard(
     if keyboard.inline_keyboard:
         last_row = keyboard.inline_keyboard[-1]
         if (
-            len(last_row) == 1
-            and isinstance(last_row[0], InlineKeyboardButton)
-            and last_row[0].callback_data in {"menu_balance", "back_to_menu"}
+                len(last_row) == 1
+                and isinstance(last_row[0], InlineKeyboardButton)
+                and last_row[0].callback_data in {"menu_balance", "back_to_menu"}
         ):
             keyboard.inline_keyboard[-1][0] = InlineKeyboardButton(
                 text=texts.t("PAYMENT_RETURN_HOME_BUTTON", "🏠 На главную"),
@@ -880,13 +886,13 @@ def get_insufficient_balance_keyboard(
 
 
 def get_subscription_keyboard(
-    language: str = DEFAULT_LANGUAGE, 
-    has_subscription: bool = False, 
-    is_trial: bool = False,
-    subscription=None
+        language: str = DEFAULT_LANGUAGE,
+        has_subscription: bool = False,
+        is_trial: bool = False,
+        subscription=None
 ) -> InlineKeyboardMarkup:
-    from app.config import settings 
-    
+    from app.config import settings
+
     texts = get_texts(language)
     keyboard = []
     has_direct_payment_methods = False
@@ -913,7 +919,8 @@ def get_subscription_keyboard(
                     ])
                 else:
                     keyboard.append([
-                        InlineKeyboardButton(text=texts.t("CONNECT_BUTTON", "🔗 Подключиться"), callback_data="subscription_connect")
+                        InlineKeyboardButton(text=texts.t("CONNECT_BUTTON", "🔗 Подключиться"),
+                                             callback_data="subscription_connect")
                     ])
             elif connect_mode == "link":
                 keyboard.append([
@@ -928,7 +935,8 @@ def get_subscription_keyboard(
                 ])
             else:
                 keyboard.append([
-                    InlineKeyboardButton(text=texts.t("CONNECT_BUTTON", "🔗 Подключиться"), callback_data="subscription_connect")
+                    InlineKeyboardButton(text=texts.t("CONNECT_BUTTON", "🔗 Подключиться"),
+                                         callback_data="subscription_connect")
                 ])
         elif settings.CONNECT_BUTTON_MODE == "miniapp_custom":
             keyboard.append([
@@ -939,7 +947,8 @@ def get_subscription_keyboard(
             ])
         else:
             keyboard.append([
-                InlineKeyboardButton(text=texts.t("CONNECT_BUTTON", "🔗 Подключиться"), callback_data="subscription_connect")
+                InlineKeyboardButton(text=texts.t("CONNECT_BUTTON", "🔗 Подключиться"),
+                                     callback_data="subscription_connect")
             ])
 
         happ_row = get_happ_download_button_row(texts)
@@ -978,10 +987,10 @@ def get_subscription_keyboard(
                 ])
             # Кнопка докупки трафика для платных подписок
             if (
-                settings.is_traffic_topup_enabled()
-                and not settings.is_traffic_topup_blocked()
-                and subscription
-                and (subscription.traffic_limit_gb or 0) > 0
+                    settings.is_traffic_topup_enabled()
+                    and not settings.is_traffic_topup_blocked()
+                    and subscription
+                    and (subscription.traffic_limit_gb or 0) > 0
             ):
                 keyboard.append([
                     InlineKeyboardButton(
@@ -993,16 +1002,17 @@ def get_subscription_keyboard(
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="back_to_menu")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+
 def get_payment_methods_keyboard_with_cart(
-    language: str = "ru",
-    amount_kopeks: int = 0,
+        language: str = "ru",
+        amount_kopeks: int = 0,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = get_payment_methods_keyboard(amount_kopeks, language)
-    
+
     # Добавляем кнопку "Очистить корзину"
     keyboard.inline_keyboard.append([
         InlineKeyboardButton(
@@ -1010,7 +1020,7 @@ def get_payment_methods_keyboard_with_cart(
             callback_data="clear_saved_cart"
         )
     ])
-    
+
     # Добавляем кнопку возврата к оформлению подписки
     keyboard.inline_keyboard.insert(-1, [  # Вставляем перед кнопкой "назад"
         InlineKeyboardButton(
@@ -1018,8 +1028,9 @@ def get_payment_methods_keyboard_with_cart(
             callback_data="return_to_saved_cart"
         )
     ])
-    
+
     return keyboard
+
 
 def get_subscription_confirm_keyboard_with_cart(language: str = "ru") -> InlineKeyboardMarkup:
     texts = get_texts(language)
@@ -1038,9 +1049,10 @@ def get_subscription_confirm_keyboard_with_cart(language: str = "ru") -> InlineK
         )]
     ])
 
+
 def get_insufficient_balance_keyboard_with_cart(
-    language: str = "ru",
-    amount_kopeks: int = 0,
+        language: str = "ru",
+        amount_kopeks: int = 0,
 ) -> InlineKeyboardMarkup:
     # Используем обновленную версию с флагом has_saved_cart=True
     keyboard = get_insufficient_balance_keyboard(
@@ -1062,19 +1074,21 @@ def get_insufficient_balance_keyboard_with_cart(
 
     return keyboard
 
+
 def get_trial_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
     texts = get_texts(language)
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text=texts.t("TRIAL_ACTIVATE_BUTTON", "🎁 Активировать"), callback_data="trial_activate"),
+            InlineKeyboardButton(text=texts.t("TRIAL_ACTIVATE_BUTTON", "🎁 Активировать"),
+                                 callback_data="trial_activate"),
             InlineKeyboardButton(text=texts.BACK, callback_data="back_to_menu")
         ]
     ])
 
 
 def get_subscription_period_keyboard(
-    language: str = DEFAULT_LANGUAGE,
-    user: Optional[User] = None
+        language: str = DEFAULT_LANGUAGE,
+        user: Optional[User] = None
 ) -> InlineKeyboardMarkup:
     """
     Generate subscription period selection keyboard with personalized pricing.
@@ -1136,39 +1150,39 @@ def get_traffic_packages_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKey
 
     if settings.is_traffic_topup_blocked():
         return get_back_keyboard(language)
-    
+
     logger.info(f"🔍 RAW CONFIG: '{settings.TRAFFIC_PACKAGES_CONFIG}'")
-    
+
     all_packages = settings.get_traffic_packages()
     logger.info(f"🔍 ALL PACKAGES: {all_packages}")
-    
+
     enabled_packages = [pkg for pkg in all_packages if pkg['enabled']]
     disabled_packages = [pkg for pkg in all_packages if not pkg['enabled']]
-    
+
     logger.info(f"🔍 ENABLED: {len(enabled_packages)} packages")
     logger.info(f"🔍 DISABLED: {len(disabled_packages)} packages")
-    
+
     for pkg in disabled_packages:
         logger.info(f"🔍 DISABLED PACKAGE: {pkg['gb']}GB = {pkg['price']} kopeks, enabled={pkg['enabled']}")
-    
+
     texts = get_texts(language)
     keyboard = []
-    
+
     traffic_packages = settings.get_traffic_packages()
-    
+
     for package in traffic_packages:
         gb = package["gb"]
-        price = package["price"]  
+        price = package["price"]
         enabled = package["enabled"]
-        
+
         if not enabled:
             continue
-        
+
         if gb == 0:
             text = f"♾️ Безлимит - {settings.format_price(package['price'])}"
         else:
             text = f"📊 {gb} ГБ - {settings.format_price(package['price'])}"
-        
+
         keyboard.append([
             InlineKeyboardButton(text=text, callback_data=f"traffic_{gb}")
         ])
@@ -1176,39 +1190,41 @@ def get_traffic_packages_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKey
     if not keyboard:
         keyboard.append([
             InlineKeyboardButton(
-                text=texts.t("TRAFFIC_PACKAGES_NOT_CONFIGURED", "⚠️ Пакеты трафика не настроены"), 
+                text=texts.t("TRAFFIC_PACKAGES_NOT_CONFIGURED", "⚠️ Пакеты трафика не настроены"),
                 callback_data="no_traffic_packages"
             )
         ])
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="subscription_config_back")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_countries_keyboard(countries: List[dict], selected: List[str], language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+
+def get_countries_keyboard(countries: List[dict], selected: List[str],
+                           language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     for country in countries:
         if not country.get('is_available', True):
-            continue 
-            
+            continue
+
         emoji = "✅" if country['uuid'] in selected else "⚪"
-        
+
         if country['price_kopeks'] > 0:
             price_text = f" (+{texts.format_price(country['price_kopeks'])})"
         else:
             price_text = " (Бесплатно)"
-        
+
         keyboard.append([
             InlineKeyboardButton(
                 text=f"{emoji} {country['name']}{price_text}",
                 callback_data=f"country_{country['uuid']}"
             )
         ])
-    
+
     if not keyboard:
         keyboard.append([
             InlineKeyboardButton(
@@ -1216,51 +1232,52 @@ def get_countries_keyboard(countries: List[dict], selected: List[str], language:
                 callback_data="no_servers"
             )
         ])
-    
+
     keyboard.extend([
         [InlineKeyboardButton(text=texts.t("CONTINUE_BUTTON", "✅ Продолжить"), callback_data="countries_continue")],
         [InlineKeyboardButton(text=texts.BACK, callback_data="subscription_config_back")]
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_devices_keyboard(current: int, language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     start_devices = settings.DEFAULT_DEVICE_LIMIT
     max_devices = settings.MAX_DEVICES_LIMIT if settings.MAX_DEVICES_LIMIT > 0 else 50
     end_devices = min(max_devices + 1, start_devices + 10)
-    
+
     buttons = []
-    
-    for devices in range(start_devices, end_devices): 
+
+    for devices in range(start_devices, end_devices):
         price = max(0, devices - settings.DEFAULT_DEVICE_LIMIT) * settings.PRICE_PER_DEVICE
         price_text = f" (+{texts.format_price(price)})" if price > 0 else " (вкл.)"
         emoji = "✅" if devices == current else "⚪"
-        
+
         button_text = f"{emoji} {devices}{price_text}"
-        
+
         buttons.append(
             InlineKeyboardButton(
                 text=button_text,
                 callback_data=f"devices_{devices}"
             )
         )
-    
+
     for i in range(0, len(buttons), 2):
         if i + 1 < len(buttons):
             keyboard.append([buttons[i], buttons[i + 1]])
         else:
             keyboard.append([buttons[i]])
-    
+
     keyboard.extend([
         [InlineKeyboardButton(text=texts.t("CONTINUE_BUTTON", "✅ Продолжить"), callback_data="devices_continue")],
         [InlineKeyboardButton(text=texts.BACK, callback_data="subscription_config_back")]
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 def _get_device_declension(count: int) -> str:
     if count % 10 == 1 and count % 100 != 11:
@@ -1269,6 +1286,7 @@ def _get_device_declension(count: int) -> str:
         return "устройства"
     else:
         return "устройств"
+
 
 def get_subscription_confirm_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
@@ -1282,7 +1300,7 @@ def get_subscription_confirm_keyboard(language: str = DEFAULT_LANGUAGE) -> Inlin
 
 def get_balance_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
-    
+
     keyboard = [
         [
             InlineKeyboardButton(text=texts.BALANCE_HISTORY, callback_data="balance_history"),
@@ -1292,7 +1310,7 @@ def get_balance_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
             InlineKeyboardButton(text=texts.BACK, callback_data="back_to_menu")
         ]
     ]
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -1451,11 +1469,12 @@ def get_payment_methods_keyboard(amount_kopeks: int, language: str = DEFAULT_LAN
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+
 def get_yookassa_payment_keyboard(
-    payment_id: str, 
-    amount_kopeks: int, 
-    confirmation_url: str,
-    language: str = DEFAULT_LANGUAGE
+        payment_id: str,
+        amount_kopeks: int,
+        confirmation_url: str,
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -1479,6 +1498,7 @@ def get_yookassa_payment_keyboard(
         ]
     ])
 
+
 def get_autopay_notification_keyboard(subscription_id: int, language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
@@ -1496,6 +1516,7 @@ def get_autopay_notification_keyboard(subscription_id: int, language: str = DEFA
             )
         ]
     ])
+
 
 def get_subscription_expiring_keyboard(subscription_id: int, language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
@@ -1521,9 +1542,10 @@ def get_subscription_expiring_keyboard(subscription_id: int, language: str = DEF
         ]
     ])
 
+
 def get_referral_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
-    
+
     keyboard = [
         [
             InlineKeyboardButton(
@@ -1552,11 +1574,11 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMar
         [
             InlineKeyboardButton(
                 text=texts.BACK,
-                callback_data="back_to_menu" 
+                callback_data="back_to_menu"
             )
         ]
     ]
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -1597,42 +1619,43 @@ def get_support_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
 
 
 def get_pagination_keyboard(
-    current_page: int,
-    total_pages: int,
-    callback_prefix: str,
-    language: str = DEFAULT_LANGUAGE
+        current_page: int,
+        total_pages: int,
+        callback_prefix: str,
+        language: str = DEFAULT_LANGUAGE
 ) -> List[List[InlineKeyboardButton]]:
     texts = get_texts(language)
     keyboard = []
-    
+
     if total_pages > 1:
         row = []
-        
+
         if current_page > 1:
             row.append(InlineKeyboardButton(
                 text=texts.t("PAGINATION_PREV", "⬅️"),
                 callback_data=f"{callback_prefix}_page_{current_page - 1}"
             ))
-        
+
         row.append(InlineKeyboardButton(
             text=f"{current_page}/{total_pages}",
             callback_data="current_page"
         ))
-        
+
         if current_page < total_pages:
             row.append(InlineKeyboardButton(
                 text=texts.t("PAGINATION_NEXT", "➡️"),
                 callback_data=f"{callback_prefix}_page_{current_page + 1}"
             ))
-        
+
         keyboard.append(row)
-    
+
     return keyboard
 
+
 def get_confirmation_keyboard(
-    confirm_data: str,
-    cancel_data: str = "cancel",
-    language: str = DEFAULT_LANGUAGE
+        confirm_data: str,
+        cancel_data: str = "cancel",
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -1651,7 +1674,8 @@ def get_autopay_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
             InlineKeyboardButton(text=texts.t("DISABLE_BUTTON", "❌ Выключить"), callback_data="autopay_disable")
         ],
         [
-            InlineKeyboardButton(text=texts.t("AUTOPAY_SET_DAYS_BUTTON", "⚙️ Настроить дни"), callback_data="autopay_set_days")
+            InlineKeyboardButton(text=texts.t("AUTOPAY_SET_DAYS_BUTTON", "⚙️ Настроить дни"),
+                                 callback_data="autopay_set_days")
         ],
         [
             InlineKeyboardButton(text=texts.BACK, callback_data="menu_subscription")
@@ -1662,7 +1686,7 @@ def get_autopay_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
 def get_autopay_days_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     for days in [1, 3, 7, 14]:
         keyboard.append([
             InlineKeyboardButton(
@@ -1670,11 +1694,11 @@ def get_autopay_days_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboar
                 callback_data=f"autopay_days_{days}"
             )
         ])
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="subscription_autopay")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -1686,30 +1710,29 @@ def _get_days_word(days: int) -> str:
     return "дней"
 
 
-
 # Deprecated: get_extend_subscription_keyboard() was removed.
 # Use get_extend_subscription_keyboard_with_prices() instead for personalized pricing.
 
 
 def get_add_traffic_keyboard(
-    language: str = DEFAULT_LANGUAGE,
-    subscription_end_date: datetime = None,
-    discount_percent: int = 0,
+        language: str = DEFAULT_LANGUAGE,
+        subscription_end_date: datetime = None,
+        discount_percent: int = 0,
 ) -> InlineKeyboardMarkup:
     from app.utils.pricing_utils import get_remaining_months
     from app.config import settings
     texts = get_texts(language)
-    
+
     months_multiplier = 1
     period_text = ""
     if subscription_end_date:
         months_multiplier = get_remaining_months(subscription_end_date)
         if months_multiplier > 1:
             period_text = f" (за {months_multiplier} мес)"
-    
+
     packages = settings.get_traffic_topup_packages()
     enabled_packages = [pkg for pkg in packages if pkg['enabled']]
-    
+
     if not enabled_packages:
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
@@ -1721,9 +1744,9 @@ def get_add_traffic_keyboard(
                 callback_data="menu_subscription"
             )]
         ])
-    
+
     buttons = []
-    
+
     for package in enabled_packages:
         gb = package['gb']
         price_per_month = package['price']
@@ -1736,37 +1759,38 @@ def get_add_traffic_keyboard(
 
         if gb == 0:
             if language == "ru":
-                text = f"♾️ Безлимитный трафик - {total_price//100} ₽{period_text}"
+                text = f"♾️ Безлимитный трафик - {total_price // 100} ₽{period_text}"
             else:
-                text = f"♾️ Unlimited traffic - {total_price//100} ₽{period_text}"
+                text = f"♾️ Unlimited traffic - {total_price // 100} ₽{period_text}"
         else:
             if language == "ru":
-                text = f"📊 +{gb} ГБ трафика - {total_price//100} ₽{period_text}"
+                text = f"📊 +{gb} ГБ трафика - {total_price // 100} ₽{period_text}"
             else:
-                text = f"📊 +{gb} GB traffic - {total_price//100} ₽{period_text}"
+                text = f"📊 +{gb} GB traffic - {total_price // 100} ₽{period_text}"
 
         if discount_percent > 0 and total_discount > 0:
-            text += f" (скидка {discount_percent}%: -{total_discount//100}₽)"
+            text += f" (скидка {discount_percent}%: -{total_discount // 100}₽)"
 
         buttons.append([
             InlineKeyboardButton(text=text, callback_data=f"add_traffic_{gb}")
         ])
-    
+
     buttons.append([
         InlineKeyboardButton(
             text=texts.BACK,
             callback_data="menu_subscription"
         )
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
-    
+
+
 def get_change_devices_keyboard(
-    current_devices: int,
-    language: str = DEFAULT_LANGUAGE,
-    subscription_end_date: datetime = None,
-    discount_percent: int = 0,
-    tariff=None,  # Тариф для цены за устройство
+        current_devices: int,
+        language: str = DEFAULT_LANGUAGE,
+        subscription_end_date: datetime = None,
+        discount_percent: int = 0,
+        tariff=None,  # Тариф для цены за устройство
 ) -> InlineKeyboardMarkup:
     from app.utils.pricing_utils import get_remaining_months
     from app.config import settings
@@ -1817,11 +1841,11 @@ def get_change_devices_keyboard(
                     discount_percent,
                 )
                 total_price = discounted_per_month * months_multiplier
-                price_text = f" (+{total_price//100}₽{period_text})"
+                price_text = f" (+{total_price // 100}₽{period_text})"
                 if discount_percent > 0 and discount_per_month * months_multiplier > 0:
                     price_text += (
                         f" (скидка {discount_percent}%:"
-                        f" -{(discount_per_month * months_multiplier)//100}₽)"
+                        f" -{(discount_per_month * months_multiplier) // 100}₽)"
                     )
                 action_text = ""
             else:
@@ -1850,12 +1874,14 @@ def get_change_devices_keyboard(
             callback_data="subscription_settings"
         )
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_confirm_change_devices_keyboard(new_devices_count: int, price: int, language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+
+def get_confirm_change_devices_keyboard(new_devices_count: int, price: int,
+                                        language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
-    
+
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
@@ -1873,24 +1899,24 @@ def get_confirm_change_devices_keyboard(new_devices_count: int, price: int, lang
 
 
 def get_reset_traffic_confirm_keyboard(
-    price_kopeks: int, 
-    language: str = DEFAULT_LANGUAGE,
-    has_enough_balance: bool = True,
-    missing_kopeks: int = 0,
+        price_kopeks: int,
+        language: str = DEFAULT_LANGUAGE,
+        has_enough_balance: bool = True,
+        missing_kopeks: int = 0,
 ) -> InlineKeyboardMarkup:
     from app.config import settings
 
     if settings.is_traffic_topup_blocked():
         return get_back_keyboard(language)
-    
+
     texts = get_texts(language)
     buttons = []
-    
+
     if has_enough_balance:
         # Достаточно средств - показываем кнопку сброса
         buttons.append([
             InlineKeyboardButton(
-                text=f"✅ Сбросить за {settings.format_price(price_kopeks)}", 
+                text=f"✅ Сбросить за {settings.format_price(price_kopeks)}",
                 callback_data="confirm_reset_traffic"
             )
         ])
@@ -1902,23 +1928,24 @@ def get_reset_traffic_confirm_keyboard(
                 callback_data=f"topup_amount_{missing_kopeks}"
             )
         ])
-    
+
     buttons.append([
         InlineKeyboardButton(
             text=texts.BACK,
             callback_data="subscription_settings",
         )
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def get_manage_countries_keyboard(
-    countries: List[dict],
-    selected: List[str],
-    current_subscription_countries: List[str],
-    language: str = DEFAULT_LANGUAGE,
-    subscription_end_date: datetime = None,
-    discount_percent: int = 0,
+        countries: List[dict],
+        selected: List[str],
+        current_subscription_countries: List[str],
+        language: str = DEFAULT_LANGUAGE,
+        subscription_end_date: datetime = None,
+        discount_percent: int = 0,
 ) -> InlineKeyboardMarkup:
     from app.utils.pricing_utils import get_remaining_months
 
@@ -1927,11 +1954,12 @@ def get_manage_countries_keyboard(
     months_multiplier = 1
     if subscription_end_date:
         months_multiplier = get_remaining_months(subscription_end_date)
-        logger.info(f"🔍 Расчет для управления странами: осталось {months_multiplier} месяцев до {subscription_end_date}")
-    
+        logger.info(
+            f"🔍 Расчет для управления странами: осталось {months_multiplier} месяцев до {subscription_end_date}")
+
     buttons = []
     total_cost = 0
-    
+
     for country in countries:
         if not country.get('is_available', True):
             continue
@@ -1961,7 +1989,7 @@ def get_manage_countries_keyboard(
             total_price = discounted_per_month * months_multiplier
             if months_multiplier > 1:
                 price_text = (
-                    f" ({discounted_per_month//100}₽/мес × {months_multiplier} = {total_price//100}₽)"
+                    f" ({discounted_per_month // 100}₽/мес × {months_multiplier} = {total_price // 100}₽)"
                 )
                 logger.info(
                     "🔍 Сервер %s: %.2f₽/мес × %s мес = %.2f₽ (скидка %.2f₽)",
@@ -1972,79 +2000,86 @@ def get_manage_countries_keyboard(
                     (discount_per_month * months_multiplier) / 100,
                 )
             else:
-                price_text = f" ({total_price//100}₽)"
+                price_text = f" ({total_price // 100}₽)"
             if discount_percent > 0 and discount_per_month * months_multiplier > 0:
                 price_text += (
                     f" (скидка {discount_percent}%:"
-                    f" -{(discount_per_month * months_multiplier)//100}₽)"
+                    f" -{(discount_per_month * months_multiplier) // 100}₽)"
                 )
             display_name = f"{icon} {name}{price_text}"
         else:
             display_name = f"{icon} {name}"
-        
+
         buttons.append([
             InlineKeyboardButton(
                 text=display_name,
                 callback_data=f"country_manage_{uuid}"
             )
         ])
-    
+
     if total_cost > 0:
-        apply_text = f"✅ Применить изменения ({total_cost//100} ₽)"
-        logger.info(f"🔍 Общая стоимость новых серверов: {total_cost/100}₽")
+        apply_text = f"✅ Применить изменения ({total_cost // 100} ₽)"
+        logger.info(f"🔍 Общая стоимость новых серверов: {total_cost / 100}₽")
     else:
         apply_text = "✅ Применить изменения"
-    
+
     buttons.append([
         InlineKeyboardButton(text=apply_text, callback_data="countries_apply")
     ])
-    
+
     buttons.append([
         InlineKeyboardButton(
             text=texts.BACK,
             callback_data="menu_subscription"
         )
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def get_device_selection_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     from app.config import settings
     texts = get_texts(language)
-    
+
     keyboard = [
         [
-            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_IOS", "📱 iOS (iPhone/iPad)"), callback_data="device_guide_ios"),
-            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_ANDROID", "🤖 Android"), callback_data="device_guide_android")
+            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_IOS", "📱 iOS (iPhone/iPad)"),
+                                 callback_data="device_guide_ios"),
+            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_ANDROID", "🤖 Android"),
+                                 callback_data="device_guide_android")
         ],
         [
-            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_WINDOWS", "💻 Windows"), callback_data="device_guide_windows"),
+            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_WINDOWS", "💻 Windows"),
+                                 callback_data="device_guide_windows"),
             InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_MAC", "🎯 macOS"), callback_data="device_guide_mac")
         ],
         [
-            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_ANDROID_TV", "📺 Android TV"), callback_data="device_guide_tv"),
-            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_APPLE_TV", "📺 Apple TV"), callback_data="device_guide_appletv")
+            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_ANDROID_TV", "📺 Android TV"),
+                                 callback_data="device_guide_tv"),
+            InlineKeyboardButton(text=texts.t("DEVICE_GUIDE_APPLE_TV", "📺 Apple TV"),
+                                 callback_data="device_guide_appletv")
         ]
     ]
-    
+
     if settings.CONNECT_BUTTON_MODE == "guide":
         keyboard.append([
-            InlineKeyboardButton(text=texts.t("SHOW_SUBSCRIPTION_LINK", "📋 Показать ссылку подписки"), callback_data="open_subscription_link")
+            InlineKeyboardButton(text=texts.t("SHOW_SUBSCRIPTION_LINK", "📋 Показать ссылку подписки"),
+                                 callback_data="open_subscription_link")
         ])
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="menu_subscription")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_connection_guide_keyboard(
-    subscription_url: str,
-    app: dict,
-    device_type: str,
-    language: str = DEFAULT_LANGUAGE,
-    has_other_apps: bool = False,
+        subscription_url: str,
+        app: dict,
+        device_type: str,
+        language: str = DEFAULT_LANGUAGE,
+        has_other_apps: bool = False,
 ) -> InlineKeyboardMarkup:
     from app.handlers.subscription import create_deep_link
     texts = get_texts(language)
@@ -2116,53 +2151,57 @@ def get_connection_guide_keyboard(
 
     keyboard.extend([
         [
-            InlineKeyboardButton(text=texts.t("CHOOSE_ANOTHER_DEVICE", "📱 Выбрать другое устройство"), callback_data="subscription_connect")
+            InlineKeyboardButton(text=texts.t("CHOOSE_ANOTHER_DEVICE", "📱 Выбрать другое устройство"),
+                                 callback_data="subscription_connect")
         ],
         [
-            InlineKeyboardButton(text=texts.t("BACK_TO_SUBSCRIPTION", "⬅️ К подписке"), callback_data="menu_subscription")
+            InlineKeyboardButton(text=texts.t("BACK_TO_SUBSCRIPTION", "⬅️ К подписке"),
+                                 callback_data="menu_subscription")
         ]
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_app_selection_keyboard(
-    device_type: str, 
-    apps: list, 
-    language: str = DEFAULT_LANGUAGE
+        device_type: str,
+        apps: list,
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     for app in apps:
         app_name = app['name']
         if app.get('isFeatured', False):
             app_name = f"⭐ {app_name}"
-        
+
         keyboard.append([
             InlineKeyboardButton(
-                text=app_name, 
+                text=app_name,
                 callback_data=f"app_{device_type}_{app['id']}"
             )
         ])
-    
+
     keyboard.extend([
         [
-            InlineKeyboardButton(text=texts.t("CHOOSE_ANOTHER_DEVICE", "📱 Выбрать другое устройство"), callback_data="subscription_connect")
+            InlineKeyboardButton(text=texts.t("CHOOSE_ANOTHER_DEVICE", "📱 Выбрать другое устройство"),
+                                 callback_data="subscription_connect")
         ],
         [
-            InlineKeyboardButton(text=texts.t("BACK_TO_SUBSCRIPTION", "⬅️ К подписке"), callback_data="menu_subscription")
+            InlineKeyboardButton(text=texts.t("BACK_TO_SUBSCRIPTION", "⬅️ К подписке"),
+                                 callback_data="menu_subscription")
         ]
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_specific_app_keyboard(
-    subscription_url: str,
-    app: dict,
-    device_type: str,
-    language: str = DEFAULT_LANGUAGE
+        subscription_url: str,
+        app: dict,
+        device_type: str,
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     from app.handlers.subscription import create_deep_link
     texts = get_texts(language)
@@ -2226,17 +2265,21 @@ def get_specific_app_keyboard(
 
     keyboard.extend([
         [
-            InlineKeyboardButton(text=texts.t("OTHER_APPS_BUTTON", "📋 Другие приложения"), callback_data=f"app_list_{device_type}")
+            InlineKeyboardButton(text=texts.t("OTHER_APPS_BUTTON", "📋 Другие приложения"),
+                                 callback_data=f"app_list_{device_type}")
         ],
         [
-            InlineKeyboardButton(text=texts.t("CHOOSE_ANOTHER_DEVICE", "📱 Выбрать другое устройство"), callback_data="subscription_connect")
+            InlineKeyboardButton(text=texts.t("CHOOSE_ANOTHER_DEVICE", "📱 Выбрать другое устройство"),
+                                 callback_data="subscription_connect")
         ],
         [
-            InlineKeyboardButton(text=texts.t("BACK_TO_SUBSCRIPTION", "⬅️ К подписке"), callback_data="menu_subscription")
+            InlineKeyboardButton(text=texts.t("BACK_TO_SUBSCRIPTION", "⬅️ К подписке"),
+                                 callback_data="menu_subscription")
         ]
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 def get_extend_subscription_keyboard_with_prices(language: str, prices: dict) -> InlineKeyboardMarkup:
     texts = get_texts(language)
@@ -2295,13 +2338,14 @@ def get_extend_subscription_keyboard_with_prices(language: str, prices: dict) ->
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+
 def get_cryptobot_payment_keyboard(
-    payment_id: str,
-    local_payment_id: int,
-    amount_usd: float,
-    asset: str,
-    bot_invoice_url: str,
-    language: str = DEFAULT_LANGUAGE
+        payment_id: str,
+        local_payment_id: int,
+        amount_usd: float,
+        asset: str,
+        bot_invoice_url: str,
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -2325,33 +2369,34 @@ def get_cryptobot_payment_keyboard(
         ]
     ])
 
+
 def get_devices_management_keyboard(
-    devices: List[dict], 
-    pagination,
-    language: str = DEFAULT_LANGUAGE
+        devices: List[dict],
+        pagination,
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
-    
+
     keyboard = []
-    
+
     for i, device in enumerate(devices):
         platform = device.get('platform', 'Unknown')
         device_model = device.get('deviceModel', 'Unknown')
         device_info = f"{platform} - {device_model}"
-        
+
         if len(device_info) > 25:
             device_info = device_info[:22] + "..."
-        
+
         keyboard.append([
             InlineKeyboardButton(
                 text=f"🔄 {device_info}",
                 callback_data=f"reset_device_{i}_{pagination.page}"
             )
         ])
-    
+
     if pagination.total_pages > 1:
         nav_row = []
-        
+
         if pagination.has_prev:
             nav_row.append(
                 InlineKeyboardButton(
@@ -2366,7 +2411,7 @@ def get_devices_management_keyboard(
                 callback_data="current_page"
             )
         )
-        
+
         if pagination.has_next:
             nav_row.append(
                 InlineKeyboardButton(
@@ -2374,30 +2419,30 @@ def get_devices_management_keyboard(
                     callback_data=f"devices_page_{pagination.next_page}"
                 )
             )
-        
+
         keyboard.append(nav_row)
-    
+
     keyboard.append([
         InlineKeyboardButton(
             text=texts.t("RESET_ALL_DEVICES_BUTTON", "🔄 Сбросить все устройства"),
             callback_data="reset_all_devices"
         )
     ])
-    
+
     keyboard.append([
         InlineKeyboardButton(
             text=texts.BACK,
             callback_data="subscription_settings"
         )
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_updated_subscription_settings_keyboard(
-    language: str = DEFAULT_LANGUAGE,
-    show_countries_management: bool = True,
-    tariff=None,  # Тариф подписки (если есть - ограничиваем настройки)
+        language: str = DEFAULT_LANGUAGE,
+        show_countries_management: bool = True,
+        tariff=None,  # Тариф подписки (если есть - ограничиваем настройки)
 ) -> InlineKeyboardMarkup:
     from app.config import settings
 
@@ -2409,15 +2454,18 @@ def get_updated_subscription_settings_keyboard(
 
     if show_countries_management and not has_tariff:
         keyboard.append([
-            InlineKeyboardButton(text=texts.t("ADD_COUNTRIES_BUTTON", "🌐 Добавить страны"), callback_data="subscription_add_countries")
+            InlineKeyboardButton(text=texts.t("ADD_COUNTRIES_BUTTON", "🌐 Добавить страны"),
+                                 callback_data="subscription_add_countries")
         ])
 
     if settings.is_traffic_selectable() and not has_tariff:
         keyboard.append([
-            InlineKeyboardButton(text=texts.t("RESET_TRAFFIC_BUTTON", "🔄 Сбросить трафик"), callback_data="subscription_reset_traffic")
+            InlineKeyboardButton(text=texts.t("RESET_TRAFFIC_BUTTON", "🔄 Сбросить трафик"),
+                                 callback_data="subscription_reset_traffic")
         ])
         keyboard.append([
-            InlineKeyboardButton(text=texts.t("SWITCH_TRAFFIC_BUTTON", "🔄 Переключить трафик"), callback_data="subscription_switch_traffic")
+            InlineKeyboardButton(text=texts.t("SWITCH_TRAFFIC_BUTTON", "🔄 Переключить трафик"),
+                                 callback_data="subscription_switch_traffic")
         ])
 
     # Устройства: для тарифов - только если указана цена за устройство
@@ -2460,19 +2508,20 @@ def get_updated_subscription_settings_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_device_reset_confirm_keyboard(device_info: str, device_index: int, page: int, language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+def get_device_reset_confirm_keyboard(device_info: str, device_index: int, page: int,
+                                      language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text=texts.t("RESET_DEVICE_CONFIRM_BUTTON", "✅ Да, сбросить это устройство"), 
+                text=texts.t("RESET_DEVICE_CONFIRM_BUTTON", "✅ Да, сбросить это устройство"),
                 callback_data=f"confirm_reset_device_{device_index}_{page}"
             )
         ],
         [
             InlineKeyboardButton(
-                text=texts.CANCEL, 
+                text=texts.CANCEL,
                 callback_data=f"devices_page_{page}"
             )
         ]
@@ -2519,15 +2568,15 @@ def get_ticket_cancel_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboa
 
 
 def get_my_tickets_keyboard(
-    tickets: List[dict],
-    current_page: int = 1,
-    total_pages: int = 1,
-    language: str = DEFAULT_LANGUAGE,
-    page_prefix: str = "my_tickets_page_"
+        tickets: List[dict],
+        current_page: int = 1,
+        total_pages: int = 1,
+        language: str = DEFAULT_LANGUAGE,
+        page_prefix: str = "my_tickets_page_"
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     for ticket in tickets:
         status_emoji = ticket.get('status_emoji', '❓')
         # Override status emoji for closed tickets in admin list
@@ -2535,18 +2584,18 @@ def get_my_tickets_keyboard(
             status_emoji = '✅'
         title = ticket.get('title', 'Без названия')[:25]
         button_text = f"{status_emoji} #{ticket['id']} {title}"
-        
+
         keyboard.append([
             InlineKeyboardButton(
                 text=button_text,
                 callback_data=f"view_ticket_{ticket['id']}"
             )
         ])
-    
+
     # Пагинация
     if total_pages > 1:
         nav_row = []
-        
+
         if current_page > 1:
             nav_row.append(
                 InlineKeyboardButton(
@@ -2554,14 +2603,14 @@ def get_my_tickets_keyboard(
                     callback_data=f"{page_prefix}{current_page - 1}"
                 )
             )
-        
+
         nav_row.append(
             InlineKeyboardButton(
                 text=f"{current_page}/{total_pages}",
                 callback_data="current_page"
             )
         )
-        
+
         if current_page < total_pages:
             nav_row.append(
                 InlineKeyboardButton(
@@ -2569,24 +2618,24 @@ def get_my_tickets_keyboard(
                     callback_data=f"{page_prefix}{current_page + 1}"
                 )
             )
-        
+
         keyboard.append(nav_row)
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="menu_support")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_ticket_view_keyboard(
-    ticket_id: int,
-    is_closed: bool = False,
-    language: str = DEFAULT_LANGUAGE
+        ticket_id: int,
+        is_closed: bool = False,
+        language: str = DEFAULT_LANGUAGE
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     if not is_closed:
         keyboard.append([
             InlineKeyboardButton(
@@ -2594,7 +2643,7 @@ def get_ticket_view_keyboard(
                 callback_data=f"reply_ticket_{ticket_id}"
             )
         ])
-    
+
     if not is_closed:
         keyboard.append([
             InlineKeyboardButton(
@@ -2602,11 +2651,11 @@ def get_ticket_view_keyboard(
                 callback_data=f"close_ticket_{ticket_id}"
             )
         ])
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="my_tickets")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -2625,17 +2674,17 @@ def get_ticket_reply_cancel_keyboard(language: str = DEFAULT_LANGUAGE) -> Inline
 # ==================== ADMIN TICKET KEYBOARDS ====================
 
 def get_admin_tickets_keyboard(
-    tickets: List[dict],
-    current_page: int = 1,
-    total_pages: int = 1,
-    language: str = DEFAULT_LANGUAGE,
-    scope: str = "all",
-    *,
-    back_callback: str = "admin_submenu_support"
+        tickets: List[dict],
+        current_page: int = 1,
+        total_pages: int = 1,
+        language: str = DEFAULT_LANGUAGE,
+        scope: str = "all",
+        *,
+        back_callback: str = "admin_submenu_support"
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     # Разделяем открытые/закрытые
     open_rows = []
     closed_rows = []
@@ -2667,8 +2716,10 @@ def get_admin_tickets_keyboard(
 
     # Scope switcher
     switch_row = []
-    switch_row.append(InlineKeyboardButton(text=texts.t("OPEN_TICKETS", "🔴 Открытые"), callback_data="admin_tickets_scope_open"))
-    switch_row.append(InlineKeyboardButton(text=texts.t("CLOSED_TICKETS", "🟢 Закрытые"), callback_data="admin_tickets_scope_closed"))
+    switch_row.append(
+        InlineKeyboardButton(text=texts.t("OPEN_TICKETS", "🔴 Открытые"), callback_data="admin_tickets_scope_open"))
+    switch_row.append(
+        InlineKeyboardButton(text=texts.t("CLOSED_TICKETS", "🟢 Закрытые"), callback_data="admin_tickets_scope_closed"))
     keyboard.append(switch_row)
 
     if open_rows and scope in ("all", "open"):
@@ -2678,16 +2729,18 @@ def get_admin_tickets_keyboard(
                 callback_data="admin_tickets_close_all_open"
             )
         ])
-        keyboard.append([InlineKeyboardButton(text=texts.t("OPEN_TICKETS_HEADER", "Открытые тикеты"), callback_data="noop")])
+        keyboard.append(
+            [InlineKeyboardButton(text=texts.t("OPEN_TICKETS_HEADER", "Открытые тикеты"), callback_data="noop")])
         keyboard.extend(open_rows)
     if closed_rows and scope in ("all", "closed"):
-        keyboard.append([InlineKeyboardButton(text=texts.t("CLOSED_TICKETS_HEADER", "Закрытые тикеты"), callback_data="noop")])
+        keyboard.append(
+            [InlineKeyboardButton(text=texts.t("CLOSED_TICKETS_HEADER", "Закрытые тикеты"), callback_data="noop")])
         keyboard.extend(closed_rows)
-    
+
     # Пагинация
     if total_pages > 1:
         nav_row = []
-        
+
         if current_page > 1:
             nav_row.append(
                 InlineKeyboardButton(
@@ -2695,14 +2748,14 @@ def get_admin_tickets_keyboard(
                     callback_data=f"admin_tickets_page_{scope}_{current_page - 1}"
                 )
             )
-        
+
         nav_row.append(
             InlineKeyboardButton(
                 text=f"{current_page}/{total_pages}",
                 callback_data="current_page"
             )
         )
-        
+
         if current_page < total_pages:
             nav_row.append(
                 InlineKeyboardButton(
@@ -2710,26 +2763,26 @@ def get_admin_tickets_keyboard(
                     callback_data=f"admin_tickets_page_{scope}_{current_page + 1}"
                 )
             )
-        
+
         keyboard.append(nav_row)
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data=back_callback)
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def get_admin_ticket_view_keyboard(
-    ticket_id: int,
-    is_closed: bool = False,
-    language: str = DEFAULT_LANGUAGE,
-    *,
-    is_user_blocked: bool = False
+        ticket_id: int,
+        is_closed: bool = False,
+        language: str = DEFAULT_LANGUAGE,
+        *,
+        is_user_blocked: bool = False
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
     keyboard = []
-    
+
     if not is_closed:
         keyboard.append([
             InlineKeyboardButton(
@@ -2737,7 +2790,7 @@ def get_admin_ticket_view_keyboard(
                 callback_data=f"admin_reply_ticket_{ticket_id}"
             )
         ])
-    
+
     if not is_closed:
         keyboard.append([
             InlineKeyboardButton(
@@ -2745,22 +2798,25 @@ def get_admin_ticket_view_keyboard(
                 callback_data=f"admin_close_ticket_{ticket_id}"
             )
         ])
-    
+
     # Блок-контролы: когда не заблокирован — показать два варианта, когда заблокирован — только "Разблокировать"
     if is_user_blocked:
         keyboard.append([
-            InlineKeyboardButton(text=texts.t("UNBLOCK", "✅ Разблокировать"), callback_data=f"admin_unblock_user_ticket_{ticket_id}")
+            InlineKeyboardButton(text=texts.t("UNBLOCK", "✅ Разблокировать"),
+                                 callback_data=f"admin_unblock_user_ticket_{ticket_id}")
         ])
     else:
         keyboard.append([
-            InlineKeyboardButton(text=texts.t("BLOCK_FOREVER", "🚫 Заблокировать"), callback_data=f"admin_block_user_perm_ticket_{ticket_id}"),
-            InlineKeyboardButton(text=texts.t("BLOCK_BY_TIME", "⏳ Блок по времени"), callback_data=f"admin_block_user_ticket_{ticket_id}")
+            InlineKeyboardButton(text=texts.t("BLOCK_FOREVER", "🚫 Заблокировать"),
+                                 callback_data=f"admin_block_user_perm_ticket_{ticket_id}"),
+            InlineKeyboardButton(text=texts.t("BLOCK_BY_TIME", "⏳ Блок по времени"),
+                                 callback_data=f"admin_block_user_ticket_{ticket_id}")
         ])
-    
+
     keyboard.append([
         InlineKeyboardButton(text=texts.BACK, callback_data="admin_tickets")
     ])
-    
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
