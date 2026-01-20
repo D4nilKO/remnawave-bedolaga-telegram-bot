@@ -555,8 +555,7 @@ async def select_country(
         await callback.answer("❌ Сервер недоступен для вашей промогруппы", show_alert=True)
         return
 
-    period_base_price = PERIOD_PRICES[data['period_days']]
-
+    period_base_price = PERIOD_PRICES.get(data['period_days'], 0)
     discounted_base_price, _ = apply_percentage_discount(
         period_base_price,
         db_user.get_promo_discount("period", data['period_days']),

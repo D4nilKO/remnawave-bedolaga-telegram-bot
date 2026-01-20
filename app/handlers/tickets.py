@@ -5,7 +5,9 @@ import time
 from aiogram import Dispatcher, types, F, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import InaccessibleMessage
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.utils.timezone import format_local_datetime
  
 from app.database.models import User, Ticket, TicketStatus
 from app.database.crud.ticket import TicketCRUD, TicketMessageCRUD
@@ -310,7 +312,7 @@ async def handle_ticket_message_input(
             f"📝 Заголовок: {safe_title}\n"
             f"📊 Статус: {ticket.status_emoji} "
             f"{texts.t('TICKET_STATUS_OPEN','Открыт')}\n"
-            f"📅 Создан: {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            f"📅 Создан: {format_local_datetime(ticket.created_at, '%d.%m.%Y %H:%M')}\n"
             + ("📎 Вложение: фото\n" if media_type == 'photo' else "")
         )
 
@@ -566,7 +568,7 @@ async def view_ticket(
         f"🎫 Тикет #{ticket.id}\n\n"
         f"📝 Заголовок: {ticket.title}\n"
         f"📊 Статус: {ticket.status_emoji} {status_text}\n"
-        f"📅 Создан: {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+        f"📅 Создан: {format_local_datetime(ticket.created_at, '%d.%m.%Y %H:%M')}\n\n"
     )
     message_blocks: list[str] = []
     if ticket.messages:
@@ -574,7 +576,7 @@ async def view_ticket(
         for msg in ticket.messages:
             sender = "👤 Вы" if msg.is_user_message else "🛠️ Поддержка"
             block = (
-                f"{sender} ({msg.created_at.strftime('%d.%m %H:%M')}):\n"
+                f"{sender} ({format_local_datetime(msg.created_at, '%d.%m %H:%M')}):\n"
                 f"{msg.message_text}\n\n"
             )
             if getattr(msg, "has_media", False) and getattr(msg, "media_type", None) == "photo":
@@ -964,7 +966,12 @@ async def close_ticket_notification(
 ):
     """Закрыть уведомление о тикете"""
     texts = get_texts(db_user.language)
-    
+
+    # Проверяем, доступно ли сообщение для удаления
+    if isinstance(callback.message, InaccessibleMessage):
+        await callback.answer()
+        return
+
     await callback.message.delete()
     await callback.answer(texts.t("NOTIFICATION_CLOSED", "Уведомление закрыто."))
 
@@ -1000,7 +1007,7 @@ async def notify_admins_about_new_ticket(ticket: Ticket, db: AsyncSession):
             f"🆔 <b>Telegram ID:</b> <code>{telegram_id_display}</code>\n"
             f"📱 <b>Username:</b> @{username_display}\n"
             f"📝 <b>Заголовок:</b> {title or '—'}\n"
-            f"📅 <b>Создан:</b> {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            f"📅 <b>Создан:</b> {format_local_datetime(ticket.created_at, '%d.%m.%Y %H:%M')}\n"
         )
 
         # Клавиатура с быстрыми действиями для админов в топике

@@ -336,9 +336,11 @@ class MiniAppSubscriptionPurchaseService:
         currency = (getattr(user, "balance_currency", None) or "RUB").upper()
         texts = get_texts(getattr(user, "language", None))
 
+        # Exclude trial-only servers from purchase options
         available_servers = await get_available_server_squads(
             db,
             promo_group_id=getattr(user, "promo_group_id", None),
+            exclude_trial_only=True,
         )
         server_catalog: Dict[str, ServerSquad] = {server.squad_uuid: server for server in available_servers}
 
@@ -618,7 +620,7 @@ class MiniAppSubscriptionPurchaseService:
             maximum = max(default_devices, settings.DEFAULT_DEVICE_LIMIT) + 10
 
         return PurchaseDevicesConfig(
-            minimum=1,
+            minimum=settings.DEFAULT_DEVICE_LIMIT,
             maximum=maximum,
             default=default_devices,
             current=default_devices,
@@ -1154,19 +1156,20 @@ class MiniAppSubscriptionPurchaseService:
                 logger.error("Failed to register subscription servers: %s", error)
 
         subscription_service = SubscriptionService()
+        # При покупке подписки ВСЕГДА сбрасываем трафик в панели
         try:
             if getattr(user, "remnawave_uuid", None):
                 await subscription_service.update_remnawave_user(
                     db,
                     subscription,
-                    reset_traffic=settings.RESET_TRAFFIC_ON_PAYMENT,
+                    reset_traffic=True,
                     reset_reason="miniapp purchase",
                 )
             else:
                 await subscription_service.create_remnawave_user(
                     db,
                     subscription,
-                    reset_traffic=settings.RESET_TRAFFIC_ON_PAYMENT,
+                    reset_traffic=True,
                     reset_reason="miniapp purchase",
                 )
         except Exception as remnawave_error:  # pragma: no cover - defensive logging

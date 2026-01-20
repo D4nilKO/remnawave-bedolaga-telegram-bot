@@ -571,11 +571,14 @@ def get_daily_contest_manage_keyboard(
                 InlineKeyboardButton(text=_t(texts, "ADMIN_CONTEST_START_MANUAL", "🧪 Ручной старт"), callback_data=f"admin_daily_manual_{template_id}"),
             ],
             [
-                InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_PRIZE", "🏅 Приз (дни)"), callback_data=f"admin_daily_edit_{template_id}_prize_days"),
-                InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_MAX_WINNERS", "👥 Победителей"), callback_data=f"admin_daily_edit_{template_id}_max_winners"),
+                InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_PRIZE_TYPE", "🏅 Тип приза"), callback_data=f"admin_daily_edit_{template_id}_prize_type"),
+                InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_PRIZE_VALUE", "💰 Значение приза"), callback_data=f"admin_daily_edit_{template_id}_prize_value"),
             ],
             [
+                InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_MAX_WINNERS", "👥 Победителей"), callback_data=f"admin_daily_edit_{template_id}_max_winners"),
                 InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_ATTEMPTS", "🔁 Попытки"), callback_data=f"admin_daily_edit_{template_id}_attempts_per_user"),
+            ],
+            [
                 InlineKeyboardButton(text=_t(texts, "ADMIN_EDIT_TIMES", "⏰ Раундов/день"), callback_data=f"admin_daily_edit_{template_id}_times_per_day"),
             ],
             [
@@ -715,10 +718,15 @@ def get_campaign_management_keyboard(
 def get_campaign_edit_keyboard(
     campaign_id: int,
     *,
-    is_balance_bonus: bool,
+    bonus_type: str = None,
+    is_balance_bonus: bool = None,  # deprecated, for backwards compatibility
     language: str = "ru",
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
+
+    # Поддержка старого API
+    if bonus_type is None and is_balance_bonus is not None:
+        bonus_type = "balance" if is_balance_bonus else "subscription"
 
     keyboard: List[List[InlineKeyboardButton]] = [
         [
@@ -733,7 +741,7 @@ def get_campaign_edit_keyboard(
         ]
     ]
 
-    if is_balance_bonus:
+    if bonus_type == "balance":
         keyboard.append(
             [
                 InlineKeyboardButton(
@@ -742,7 +750,7 @@ def get_campaign_edit_keyboard(
                 )
             ]
         )
-    else:
+    elif bonus_type == "subscription":
         keyboard.extend(
             [
                 [
@@ -767,6 +775,22 @@ def get_campaign_edit_keyboard(
                 ],
             ]
         )
+    elif bonus_type == "tariff":
+        keyboard.extend(
+            [
+                [
+                    InlineKeyboardButton(
+                        text=_t(texts, "ADMIN_CAMPAIGN_TARIFF", "🎁 Тариф"),
+                        callback_data=f"admin_campaign_edit_tariff_{campaign_id}",
+                    ),
+                    InlineKeyboardButton(
+                        text=_t(texts, "ADMIN_CAMPAIGN_DURATION", "📅 Длительность"),
+                        callback_data=f"admin_campaign_edit_tariff_days_{campaign_id}",
+                    ),
+                ],
+            ]
+        )
+    # bonus_type == "none" - только базовые кнопки (название и параметр)
 
     keyboard.append(
         [
@@ -789,8 +813,18 @@ def get_campaign_bonus_type_keyboard(language: str = "ru") -> InlineKeyboardMark
                 callback_data="campaign_bonus_balance"
             ),
             InlineKeyboardButton(
-                text=_t(texts, "ADMIN_CAMPAIGN_BONUS_SUBSCRIPTION", "📱 Подписка"),
+                text=_t(texts, "ADMIN_CAMPAIGN_BONUS_SUBSCRIPTION", "📱 Пробная подписка"),
                 callback_data="campaign_bonus_subscription"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_t(texts, "ADMIN_CAMPAIGN_BONUS_TARIFF", "🎁 Тариф"),
+                callback_data="campaign_bonus_tariff"
+            ),
+            InlineKeyboardButton(
+                text=_t(texts, "ADMIN_CAMPAIGN_BONUS_NONE", "🔗 Только ссылка"),
+                callback_data="campaign_bonus_none"
             )
         ],
         [
@@ -1281,6 +1315,12 @@ def get_promocode_type_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
             )
         ],
         [
+            InlineKeyboardButton(
+                text=_t(texts, "ADMIN_PROMOCODE_TYPE_DISCOUNT", "💸 Одноразовая скидка"),
+                callback_data="promo_type_discount"
+            )
+        ],
+        [
             InlineKeyboardButton(text=texts.BACK, callback_data="admin_promocodes")
         ]
     ])
@@ -1375,6 +1415,12 @@ def get_broadcast_target_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=_t(texts, "ADMIN_BROADCAST_TARGET_TRIAL_ZERO", "🥶 Триал 0 ГБ"),
                 callback_data="broadcast_trial_zero"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_t(texts, "ADMIN_BROADCAST_TARGET_BY_TARIFF", "📦 По тарифу"),
+                callback_data="broadcast_by_tariff"
             )
         ],
         [InlineKeyboardButton(text=texts.BACK, callback_data="admin_messages")]
@@ -1711,22 +1757,28 @@ def get_monitoring_keyboard(language: str = "ru") -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text=_t(texts, "ADMIN_MONITORING_FORCE_CHECK", "🔄 Принудительная проверка"),
+                text=_t(texts, "ADMIN_MONITORING_FORCE_CHECK", "🔄 Проверка подписок"),
                 callback_data="admin_mon_force_check"
             ),
             InlineKeyboardButton(
+                text=_t(texts, "ADMIN_MONITORING_TRAFFIC_CHECK", "📊 Проверка трафика"),
+                callback_data="admin_mon_traffic_check"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=_t(texts, "ADMIN_MONITORING_LOGS", "📋 Логи"),
                 callback_data="admin_mon_logs"
+            ),
+            InlineKeyboardButton(
+                text=_t(texts, "ADMIN_MONITORING_STATISTICS", "📈 Статистика"),
+                callback_data="admin_mon_statistics"
             )
         ],
         [
             InlineKeyboardButton(
                 text=_t(texts, "ADMIN_MONITORING_TEST_NOTIFICATIONS", "🧪 Тест уведомлений"),
                 callback_data="admin_mon_test_notifications"
-            ),
-            InlineKeyboardButton(
-                text=_t(texts, "ADMIN_MONITORING_STATISTICS", "📊 Статистика"),
-                callback_data="admin_mon_statistics"
             )
         ],
         [

@@ -8,9 +8,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
 from app.config import settings
-from app.database.database import get_db
+from app.database.database import AsyncSessionLocal
 from app.services.monitoring_service import monitoring_service
 from app.services.nalogo_queue_service import nalogo_queue_service
+from app.services.traffic_monitoring_service import (
+    traffic_monitoring_service,
+    traffic_monitoring_scheduler,
+)
 from app.utils.decorators import admin_required
 from app.utils.pagination import paginate_list
 from app.keyboards.admin import get_monitoring_keyboard, get_admin_main_keyboard
@@ -379,12 +383,12 @@ async def _render_notification_settings_for_state(
 @admin_required
 async def admin_monitoring_menu(callback: CallbackQuery):
     try:
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             status = await monitoring_service.get_monitoring_status(db)
-            
+
             running_status = "🟢 Работает" if status['is_running'] else "🔴 Остановлен"
             last_update = status['last_update'].strftime('%H:%M:%S') if status['last_update'] else "Никогда"
-            
+
             text = f"""
 🔍 <b>Система мониторинга</b>
 
@@ -400,12 +404,11 @@ async def admin_monitoring_menu(callback: CallbackQuery):
 
 🔧 Выберите действие:
 """
-            
+
             language = callback.from_user.language_code or settings.DEFAULT_LANGUAGE
             keyboard = get_monitoring_keyboard(language)
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-            break
-            
+
     except Exception as e:
         logger.error(f"Ошибка в админ меню мониторинга: {e}")
         await callback.answer("❌ Ошибка получения данных", show_alert=True)
@@ -737,10 +740,10 @@ async def stop_monitoring_callback(callback: CallbackQuery):
 async def force_check_callback(callback: CallbackQuery):
     try:
         await callback.answer("⏳ Выполняем проверку подписок...")
-        
-        async for db in get_db():
+
+        async with AsyncSessionLocal() as db:
             results = await monitoring_service.force_check_subscriptions(db)
-            
+
             text = f"""
 ✅ <b>Принудительная проверка завершена</b>
 
@@ -753,18 +756,81 @@ async def force_check_callback(callback: CallbackQuery):
 
 Нажмите "Назад" для возврата в меню мониторинга.
 """
-            
+
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_monitoring")]
             ])
-            
+
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-            break
-            
+
     except Exception as e:
         logger.error(f"Ошибка принудительной проверки: {e}")
         await callback.answer(f"❌ Ошибка проверки: {str(e)}", show_alert=True)
+
+
+@router.callback_query(F.data == "admin_mon_traffic_check")
+@admin_required
+async def traffic_check_callback(callback: CallbackQuery):
+    """Ручная проверка трафика — использует snapshot и дельту."""
+    try:
+        # Проверяем, включен ли мониторинг трафика
+        if not traffic_monitoring_scheduler.is_enabled():
+            await callback.answer(
+                "⚠️ Мониторинг трафика отключен в настройках\n"
+                "Включите TRAFFIC_FAST_CHECK_ENABLED=true в .env",
+                show_alert=True
+            )
+            return
+
+        await callback.answer("⏳ Запускаем проверку трафика (дельта)...")
+
+        # Используем run_fast_check — он сравнивает с snapshot и отправляет уведомления
+        from app.services.traffic_monitoring_service import traffic_monitoring_scheduler_v2
+
+        # Устанавливаем бота, если не установлен
+        if not traffic_monitoring_scheduler_v2.bot:
+            traffic_monitoring_scheduler_v2.set_bot(callback.bot)
+
+        violations = await traffic_monitoring_scheduler_v2.run_fast_check_now()
+
+        # Получаем информацию о snapshot
+        snapshot_age = await traffic_monitoring_scheduler_v2.service.get_snapshot_age_minutes()
+        threshold_gb = traffic_monitoring_scheduler_v2.service.get_fast_check_threshold_gb()
+
+        text = f"""
+📊 <b>Проверка трафика завершена</b>
+
+🔍 <b>Результаты (дельта):</b>
+• Превышений за интервал: {len(violations)}
+• Порог дельты: {threshold_gb} ГБ
+• Возраст snapshot: {snapshot_age:.1f} мин
+
+🕐 <b>Время проверки:</b> {datetime.now().strftime('%H:%M:%S')}
+"""
+
+        if violations:
+            text += "\n⚠️ <b>Превышения дельты:</b>\n"
+            for v in violations[:10]:
+                name = v.full_name or v.user_uuid[:8]
+                text += f"• {name}: +{v.used_traffic_gb:.1f} ГБ\n"
+            if len(violations) > 10:
+                text += f"... и ещё {len(violations) - 10}\n"
+            text += "\n📨 Уведомления отправлены (с учётом кулдауна)"
+        else:
+            text += "\n✅ Превышений не обнаружено"
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Повторить", callback_data="admin_mon_traffic_check")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_monitoring")]
+        ])
+
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+    except Exception as e:
+        logger.error(f"Ошибка проверки трафика: {e}")
+        await callback.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("admin_mon_logs"))
@@ -775,46 +841,45 @@ async def monitoring_logs_callback(callback: CallbackQuery):
         if "_page_" in callback.data:
             page = int(callback.data.split("_page_")[1])
         
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             all_logs = await monitoring_service.get_monitoring_logs(db, limit=1000)
-            
+
             if not all_logs:
                 text = "📋 <b>Логи мониторинга пусты</b>\n\nСистема еще не выполнила проверки."
                 keyboard = get_monitoring_logs_back_keyboard()
                 await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
                 return
-            
+
             per_page = 8
             paginated_logs = paginate_list(all_logs, page=page, per_page=per_page)
-            
+
             text = f"📋 <b>Логи мониторинга</b> (стр. {page}/{paginated_logs.total_pages})\n\n"
-            
+
             for log in paginated_logs.items:
                 icon = "✅" if log['is_success'] else "❌"
                 time_str = log['created_at'].strftime('%m-%d %H:%M')
                 event_type = log['event_type'].replace('_', ' ').title()
-                
+
                 message = log['message']
                 if len(message) > 45:
                     message = message[:45] + "..."
-                
+
                 text += f"{icon} <code>{time_str}</code> {event_type}\n"
                 text += f"   📄 {message}\n\n"
-            
+
             total_success = sum(1 for log in all_logs if log['is_success'])
             total_failed = len(all_logs) - total_success
             success_rate = round(total_success / len(all_logs) * 100, 1) if all_logs else 0
-            
+
             text += f"📊 <b>Общая статистика:</b>\n"
             text += f"• Всего событий: {len(all_logs)}\n"
             text += f"• Успешных: {total_success}\n"
             text += f"• Ошибок: {total_failed}\n"
             text += f"• Успешность: {success_rate}%"
-            
+
             keyboard = get_monitoring_logs_keyboard(page, paginated_logs.total_pages)
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-            break
-            
+
     except Exception as e:
         logger.error(f"Ошибка получения логов: {e}")
         await callback.answer("❌ Ошибка получения логов", show_alert=True)
@@ -824,17 +889,17 @@ async def monitoring_logs_callback(callback: CallbackQuery):
 @admin_required
 async def clear_logs_callback(callback: CallbackQuery):
     try:
-        async for db in get_db():
-            deleted_count = await monitoring_service.cleanup_old_logs(db, days=0) 
-            
+        async with AsyncSessionLocal() as db:
+            deleted_count = await monitoring_service.cleanup_old_logs(db, days=0)
+            await db.commit()
+
             if deleted_count > 0:
                 await callback.answer(f"🗑️ Удалено {deleted_count} записей логов")
             else:
                 await callback.answer("ℹ️ Логи уже пусты")
-            
+
             await monitoring_logs_callback(callback)
-            break
-            
+
     except Exception as e:
         logger.error(f"Ошибка очистки логов: {e}")
         await callback.answer(f"❌ Ошибка очистки: {str(e)}", show_alert=True)
@@ -874,19 +939,19 @@ async def test_notifications_callback(callback: CallbackQuery):
 @admin_required
 async def monitoring_statistics_callback(callback: CallbackQuery):
     try:
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             from app.database.crud.subscription import get_subscriptions_statistics
             sub_stats = await get_subscriptions_statistics(db)
-            
+
             mon_status = await monitoring_service.get_monitoring_status(db)
-            
+
             week_ago = datetime.now() - timedelta(days=7)
             week_logs = await monitoring_service.get_monitoring_logs(db, limit=1000)
             week_logs = [log for log in week_logs if log['created_at'] >= week_ago]
-            
+
             week_success = sum(1 for log in week_logs if log['is_success'])
             week_errors = len(week_logs) - week_success
-            
+
             text = f"""
 📊 <b>Статистика мониторинга</b>
 
@@ -960,8 +1025,7 @@ async def monitoring_statistics_callback(callback: CallbackQuery):
             keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-            break
-            
+
     except Exception as e:
         logger.error(f"Ошибка получения статистики: {e}")
         await callback.answer(f"❌ Ошибка получения статистики: {str(e)}", show_alert=True)
@@ -1000,7 +1064,7 @@ async def nalogo_force_process_callback(callback: CallbackQuery):
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
         # Перезагружаем статистику
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             from app.database.crud.subscription import get_subscriptions_statistics
             sub_stats = await get_subscriptions_statistics(db)
             mon_status = await monitoring_service.get_monitoring_status(db)
@@ -1071,7 +1135,6 @@ async def nalogo_force_process_callback(callback: CallbackQuery):
             keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
             await callback.message.edit_text(stats_text, parse_mode="HTML", reply_markup=keyboard)
-            break
 
     except Exception as e:
         logger.error(f"Ошибка принудительной обработки чеков: {e}")
@@ -1241,7 +1304,7 @@ async def receipts_link_old_callback(callback: CallbackQuery):
 
         TRACKING_START_DATE = datetime(2024, 12, 29, 0, 0, 0)
 
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             # Получаем старые транзакции без чеков
             query = select(Transaction).where(
                 and_(
@@ -1319,7 +1382,6 @@ async def receipts_link_old_callback(callback: CallbackQuery):
             ])
 
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
-            break
 
     except Exception as e:
         logger.error(f"Ошибка привязки старых чеков: {e}", exc_info=True)
@@ -1627,11 +1689,11 @@ def get_monitoring_logs_back_keyboard():
 @admin_required
 async def monitoring_command(message: Message):
     try:
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             status = await monitoring_service.get_monitoring_status(db)
-            
+
             running_status = "🟢 Работает" if status['is_running'] else "🔴 Остановлен"
-            
+
             text = f"""
 🔍 <b>Быстрый статус мониторинга</b>
 
@@ -1641,10 +1703,9 @@ async def monitoring_command(message: Message):
 
 Для подробного управления используйте админ-панель.
 """
-            
+
             await message.answer(text, parse_mode="HTML")
-            break
-            
+
     except Exception as e:
         logger.error(f"Ошибка команды /monitoring: {e}")
         await message.answer(f"❌ Ошибка: {str(e)}")
