@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 
 from app.database.models import User, Ticket, TicketMessage
 from app.database.crud.ticket import TicketCRUD, TicketMessageCRUD
+from app.database.crud.ticket_notification import TicketNotificationCRUD
 from app.config import settings
+from app.cabinet.routes.websocket import notify_user_ticket_reply
 
 from ..dependencies import get_cabinet_db, get_current_admin_user
 from ..schemas.tickets import TicketMessageResponse
@@ -103,6 +105,30 @@ class AdminStatsResponse(BaseModel):
     closed: int
 
 
+class TicketSettingsResponse(BaseModel):
+    """Ticket system settings."""
+    sla_enabled: bool
+    sla_minutes: int
+    sla_check_interval_seconds: int
+    sla_reminder_cooldown_minutes: int
+    support_system_mode: str  # tickets, contact, both
+    # Cabinet notifications settings
+    cabinet_user_notifications_enabled: bool = True
+    cabinet_admin_notifications_enabled: bool = True
+
+
+class TicketSettingsUpdateRequest(BaseModel):
+    """Update ticket settings."""
+    sla_enabled: Optional[bool] = None
+    sla_minutes: Optional[int] = Field(None, ge=1, le=1440, description="SLA time in minutes (1-1440)")
+    sla_check_interval_seconds: Optional[int] = Field(None, ge=30, le=600, description="Check interval (30-600 seconds)")
+    sla_reminder_cooldown_minutes: Optional[int] = Field(None, ge=1, le=120, description="Reminder cooldown (1-120 minutes)")
+    support_system_mode: Optional[str] = Field(None, description="Support mode: tickets, contact, both")
+    # Cabinet notifications settings
+    cabinet_user_notifications_enabled: Optional[bool] = Field(None, description="Enable user notifications in cabinet")
+    cabinet_admin_notifications_enabled: Optional[bool] = Field(None, description="Enable admin notifications in cabinet")
+
+
 def _message_to_response(message: TicketMessage) -> TicketMessageResponse:
     """Convert TicketMessage to response."""
     return TicketMessageResponse(
@@ -111,6 +137,7 @@ def _message_to_response(message: TicketMessage) -> TicketMessageResponse:
         is_from_admin=message.is_from_admin,
         has_media=bool(message.media_file_id),
         media_type=message.media_type,
+        media_file_id=message.media_file_id,
         media_caption=message.media_caption,
         created_at=message.created_at,
     )
@@ -329,6 +356,17 @@ async def reply_to_ticket(
     except Exception as e:
         logger.warning(f"Failed to send Telegram notification: {e}")
 
+    # Уведомить пользователя в кабинете
+    try:
+        notification = await TicketNotificationCRUD.create_user_notification_for_admin_reply(
+            db, ticket, request.message
+        )
+        if notification:
+            # Отправить WebSocket уведомление
+            await notify_user_ticket_reply(ticket.user_id, ticket.id, (request.message or "")[:100])
+    except Exception as e:
+        logger.warning(f"Failed to create cabinet notification for admin reply: {e}")
+
     return _message_to_response(message)
 
 
@@ -447,4 +485,114 @@ async def update_ticket_priority(
         is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, "is_reply_blocked") else False,
         user=user_info,
         messages=messages_response,
+    )
+
+
+@router.get("/settings", response_model=TicketSettingsResponse)
+async def get_ticket_settings(
+    admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Get ticket system settings."""
+    from app.services.support_settings_service import SupportSettingsService
+
+    return TicketSettingsResponse(
+        sla_enabled=settings.SUPPORT_TICKET_SLA_ENABLED,
+        sla_minutes=settings.SUPPORT_TICKET_SLA_MINUTES,
+        sla_check_interval_seconds=settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS,
+        sla_reminder_cooldown_minutes=settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES,
+        support_system_mode=settings.get_support_system_mode(),
+        cabinet_user_notifications_enabled=SupportSettingsService.get_cabinet_user_notifications_enabled(),
+        cabinet_admin_notifications_enabled=SupportSettingsService.get_cabinet_admin_notifications_enabled(),
+    )
+
+
+@router.patch("/settings", response_model=TicketSettingsResponse)
+async def update_ticket_settings(
+    request: TicketSettingsUpdateRequest,
+    admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Update ticket system settings."""
+    import os
+    from pathlib import Path
+    from app.services.support_settings_service import SupportSettingsService
+
+    # Validate support_system_mode
+    if request.support_system_mode is not None:
+        mode = request.support_system_mode.strip().lower()
+        if mode not in {"tickets", "contact", "both"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid support_system_mode. Must be: tickets, contact, or both",
+            )
+
+    # Update in-memory settings
+    if request.sla_enabled is not None:
+        settings.SUPPORT_TICKET_SLA_ENABLED = request.sla_enabled
+    if request.sla_minutes is not None:
+        settings.SUPPORT_TICKET_SLA_MINUTES = request.sla_minutes
+    if request.sla_check_interval_seconds is not None:
+        settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS = request.sla_check_interval_seconds
+    if request.sla_reminder_cooldown_minutes is not None:
+        settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES = request.sla_reminder_cooldown_minutes
+    if request.support_system_mode is not None:
+        settings.SUPPORT_SYSTEM_MODE = request.support_system_mode.strip().lower()
+
+    # Update cabinet notification settings
+    if request.cabinet_user_notifications_enabled is not None:
+        SupportSettingsService.set_cabinet_user_notifications_enabled(request.cabinet_user_notifications_enabled)
+    if request.cabinet_admin_notifications_enabled is not None:
+        SupportSettingsService.set_cabinet_admin_notifications_enabled(request.cabinet_admin_notifications_enabled)
+
+    # Try to persist to .env file
+    try:
+        env_file = Path(".env")
+        if env_file.exists():
+            lines = env_file.read_text().splitlines()
+            updates = {}
+
+            if request.sla_enabled is not None:
+                updates["SUPPORT_TICKET_SLA_ENABLED"] = str(request.sla_enabled).lower()
+            if request.sla_minutes is not None:
+                updates["SUPPORT_TICKET_SLA_MINUTES"] = str(request.sla_minutes)
+            if request.sla_check_interval_seconds is not None:
+                updates["SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS"] = str(request.sla_check_interval_seconds)
+            if request.sla_reminder_cooldown_minutes is not None:
+                updates["SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES"] = str(request.sla_reminder_cooldown_minutes)
+            if request.support_system_mode is not None:
+                updates["SUPPORT_SYSTEM_MODE"] = request.support_system_mode.strip().lower()
+
+            new_lines = []
+            updated_keys = set()
+
+            for line in lines:
+                updated = False
+                for key, value in updates.items():
+                    if line.startswith(f"{key}="):
+                        new_lines.append(f"{key}={value}")
+                        updated_keys.add(key)
+                        updated = True
+                        break
+                if not updated:
+                    new_lines.append(line)
+
+            # Add any keys that weren't found
+            for key, value in updates.items():
+                if key not in updated_keys:
+                    new_lines.append(f"{key}={value}")
+
+            env_file.write_text("\n".join(new_lines) + "\n")
+            logger.info(f"Updated ticket settings in .env file")
+    except Exception as e:
+        logger.warning(f"Failed to update .env file: {e}")
+
+    return TicketSettingsResponse(
+        sla_enabled=settings.SUPPORT_TICKET_SLA_ENABLED,
+        sla_minutes=settings.SUPPORT_TICKET_SLA_MINUTES,
+        sla_check_interval_seconds=settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS,
+        sla_reminder_cooldown_minutes=settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES,
+        support_system_mode=settings.get_support_system_mode(),
+        cabinet_user_notifications_enabled=SupportSettingsService.get_cabinet_user_notifications_enabled(),
+        cabinet_admin_notifications_enabled=SupportSettingsService.get_cabinet_admin_notifications_enabled(),
     )

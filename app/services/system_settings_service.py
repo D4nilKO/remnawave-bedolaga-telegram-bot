@@ -127,6 +127,7 @@ class BotConfigurationService:
         "LOG": "📝 Логирование",
         "DEBUG": "🧪 Режим разработки",
         "MODERATION": "🛡️ Модерация и фильтры",
+        "BAN_NOTIFICATIONS": "🚫 Тексты уведомлений о блокировках",
     }
 
     CATEGORY_DESCRIPTIONS: Dict[str, str] = {
@@ -184,6 +185,7 @@ class BotConfigurationService:
         "LOG": "Уровни логирования и ротация.",
         "DEBUG": "Отладочные функции и безопасный режим.",
         "MODERATION": "Настройки фильтров отображаемых имен и защиты от фишинга.",
+        "BAN_NOTIFICATIONS": "Тексты уведомлений о блокировках, которые отправляются пользователям.",
     }
 
     @staticmethod
@@ -214,6 +216,7 @@ class BotConfigurationService:
         "DEVICES_SELECTION_ENABLED": "SUBSCRIPTIONS_CORE",
         "DEVICES_SELECTION_DISABLED_AMOUNT": "SUBSCRIPTIONS_CORE",
         "BASE_SUBSCRIPTION_PRICE": "SUBSCRIPTIONS_CORE",
+        "SALES_MODE": "SUBSCRIPTIONS_CORE",
         "DEFAULT_TRAFFIC_RESET_STRATEGY": "TRAFFIC",
         "RESET_TRAFFIC_ON_PAYMENT": "TRAFFIC",
         "TRAFFIC_SELECTION_MODE": "TRAFFIC",
@@ -256,6 +259,7 @@ class BotConfigurationService:
         "PAYMENT_BALANCE_TEMPLATE": "PAYMENT",
         "PAYMENT_SUBSCRIPTION_TEMPLATE": "PAYMENT",
         "AUTO_PURCHASE_AFTER_TOPUP_ENABLED": "PAYMENT",
+        "SHOW_ACTIVATION_PROMPT_AFTER_TOPUP": "PAYMENT",
         "SIMPLE_SUBSCRIPTION_ENABLED": "SIMPLE_SUBSCRIPTION",
         "SIMPLE_SUBSCRIPTION_PERIOD_DAYS": "SIMPLE_SUBSCRIPTION",
         "SIMPLE_SUBSCRIPTION_DEVICE_LIMIT": "SIMPLE_SUBSCRIPTION",
@@ -268,6 +272,10 @@ class BotConfigurationService:
         "NOTIFICATION_CACHE_HOURS": "NOTIFICATIONS",
         "MONITORING_LOGS_RETENTION_DAYS": "MONITORING",
         "MONITORING_INTERVAL": "MONITORING",
+        "TRAFFIC_MONITORING_ENABLED": "MONITORING",
+        "TRAFFIC_MONITORING_INTERVAL_HOURS": "MONITORING",
+        "TRAFFIC_MONITORED_NODES": "MONITORING",
+        "TRAFFIC_SNAPSHOT_TTL_HOURS": "MONITORING",
         "ENABLE_LOGO_MODE": "INTERFACE_BRANDING",
         "LOGO_FILE": "INTERFACE_BRANDING",
         "HIDE_SUBSCRIPTION_LINK": "INTERFACE_SUBSCRIPTION",
@@ -292,6 +300,7 @@ class BotConfigurationService:
         "REMNAWAVE_USER_USERNAME_TEMPLATE": "REMNAWAVE",
         "REMNAWAVE_AUTO_SYNC_ENABLED": "REMNAWAVE",
         "REMNAWAVE_AUTO_SYNC_TIMES": "REMNAWAVE",
+        "CABINET_REMNA_SUB_CONFIG": "MINIAPP",
     }
 
     CATEGORY_PREFIX_OVERRIDES: Dict[str, str] = {
@@ -339,6 +348,7 @@ class BotConfigurationService:
         "WEB_API_": "WEB_API",
         "DEBUG": "DEBUG",
         "DISPLAY_NAME_": "MODERATION",
+        "BAN_MSG_": "BAN_NOTIFICATIONS",
     }
 
     CHOICES: Dict[str, List[ChoiceOption]] = {
@@ -381,6 +391,10 @@ class BotConfigurationService:
         "MAIN_MENU_MODE": [
             ChoiceOption("default", "📋 Полное меню"),
             ChoiceOption("text", "📝 Текстовое меню"),
+        ],
+        "SALES_MODE": [
+            ChoiceOption("classic", "📋 Классический (периоды из .env)"),
+            ChoiceOption("tariffs", "📦 Тарифы (из кабинета)"),
         ],
         "SERVER_STATUS_MODE": [
             ChoiceOption("disabled", "🚫 Отключено"),
@@ -440,6 +454,19 @@ class BotConfigurationService:
     }
 
     SETTING_HINTS: Dict[str, Dict[str, str]] = {
+        "SALES_MODE": {
+            "description": (
+                "Режим продажи подписок. "
+                "«Классический» — выбор периода из .env (PRICE_14_DAYS и т.д.). "
+                "«Тарифы» — готовые тарифные планы из кабинета с серверами и лимитами."
+            ),
+            "format": "Выберите один из доступных режимов.",
+            "example": "tariffs",
+            "warning": (
+                "При смене режима логика покупки подписки полностью меняется. "
+                "В режиме «Тарифы» пользователи выбирают готовый тарифный план."
+            ),
+        },
         "YOOKASSA_ENABLED": {
             "description": (
                 "Включает оплату через YooKassa. "
@@ -546,6 +573,19 @@ class BotConfigurationService:
             "example": "true",
             "warning": (
                 "Используйте с осторожностью: средства будут списаны мгновенно, если корзина найдена."
+            ),
+        },
+        "SHOW_ACTIVATION_PROMPT_AFTER_TOPUP": {
+            "description": (
+                "Включает режим яркого промпта активации подписки после пополнения баланса. "
+                "Вместо обычного уведомления пользователь получит яркое сообщение с восклицательными знаками "
+                "и кнопками для активации/продления подписки или изменения количества устройств."
+            ),
+            "format": "Булево значение.",
+            "example": "true",
+            "warning": (
+                "При включении пользователи будут получать только яркое уведомление без кнопок баланса и главного меню. "
+                "Эти кнопки появятся после выполнения действия (активация/продление/изменение устройств)."
             ),
         },
         "SUPPORT_TICKET_SLA_MINUTES": {
@@ -677,6 +717,68 @@ class BotConfigurationService:
             "example": "PAID_USER",
             "warning": "Если тег не задан или невалиден, существующий тег не будет изменён.",
             "dependencies": "Оплата подписки и интеграция с RemnaWave",
+        },
+        "CABINET_REMNA_SUB_CONFIG": {
+            "description": (
+                "UUID конфигурации страницы подписки из RemnaWave. "
+                "Позволяет синхронизировать список приложений напрямую из панели."
+            ),
+            "format": "UUID конфигурации из раздела Subscription Page Configs в RemnaWave.",
+            "example": "d4aa2b8c-9a36-4f31-93a2-6f07dad05fba",
+            "warning": "Убедитесь, что конфигурация существует в панели и содержит нужные приложения.",
+            "dependencies": "Настроенное подключение к RemnaWave API",
+        },
+        "TRAFFIC_MONITORING_ENABLED": {
+            "description": (
+                "Включает автоматический мониторинг трафика пользователей. "
+                "Система отслеживает изменения трафика (дельту) и сохраняет snapshot в Redis. "
+                "При превышении порогов отправляются уведомления пользователям и админам."
+            ),
+            "format": "Булево значение.",
+            "example": "true",
+            "warning": (
+                "Требует настроенного подключения к Redis. "
+                "При включении будет запущен фоновый мониторинг трафика по расписанию."
+            ),
+            "dependencies": "Redis, TRAFFIC_MONITORING_INTERVAL_HOURS, TRAFFIC_SNAPSHOT_TTL_HOURS",
+        },
+        "TRAFFIC_MONITORING_INTERVAL_HOURS": {
+            "description": (
+                "Интервал проверки трафика в часах. "
+                "Каждые N часов система проверяет трафик всех активных пользователей и сравнивает с предыдущим snapshot."
+            ),
+            "format": "Целое число часов (минимум 1).",
+            "example": "24",
+            "warning": (
+                "Слишком маленький интервал может создать большую нагрузку на RemnaWave API. "
+                "Рекомендуется 24 часа для ежедневного мониторинга."
+            ),
+            "dependencies": "TRAFFIC_MONITORING_ENABLED",
+        },
+        "TRAFFIC_MONITORED_NODES": {
+            "description": (
+                "Список UUID нод для мониторинга трафика через запятую. "
+                "Если пусто - мониторятся все ноды. "
+                "Позволяет ограничить мониторинг только определенными серверами."
+            ),
+            "format": "UUID через запятую или пусто для всех нод.",
+            "example": "d4aa2b8c-9a36-4f31-93a2-6f07dad05fba, a1b2c3d4-5678-90ab-cdef-1234567890ab",
+            "warning": "UUID должны существовать в RemnaWave, иначе мониторинг не будет работать.",
+            "dependencies": "TRAFFIC_MONITORING_ENABLED",
+        },
+        "TRAFFIC_SNAPSHOT_TTL_HOURS": {
+            "description": (
+                "Время жизни (TTL) snapshot трафика в Redis в часах. "
+                "Snapshot используется для вычисления дельты (изменения трафика) между проверками. "
+                "После истечения TTL snapshot удаляется и создается новый."
+            ),
+            "format": "Целое число часов (минимум 1).",
+            "example": "24",
+            "warning": (
+                "TTL должен быть >= интервала мониторинга. "
+                "Если TTL меньше интервала, snapshot будет удален до следующей проверки."
+            ),
+            "dependencies": "TRAFFIC_MONITORING_ENABLED, Redis",
         },
     }
 

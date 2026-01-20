@@ -3,6 +3,7 @@ import logging
 from aiogram import Dispatcher, types, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InaccessibleMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -120,7 +121,7 @@ async def route_payment_by_method(
     return False
 
 
-def get_quick_amount_buttons(language: str, user: User) -> list:
+async def get_quick_amount_buttons(language: str, user: User) -> list:
     """
     Generate quick amount buttons with user-specific pricing and discounts.
 
@@ -135,17 +136,41 @@ def get_quick_amount_buttons(language: str, user: User) -> list:
         return []
 
     from app.localization.texts import get_texts
+    from app.config import PERIOD_PRICES
     texts = get_texts(language)
 
+    # В режиме тарифов получаем цены из тарифа пользователя
+    tariff_prices = None
+    tariff_periods = None
+    if settings.is_tariffs_mode():
+        from app.database.database import AsyncSessionLocal
+        from app.database.crud.subscription import get_subscription_by_user_id
+        from app.database.crud.tariff import get_tariff_by_id
+
+        async with AsyncSessionLocal() as db:
+            subscription = await get_subscription_by_user_id(db, user.id)
+            if subscription and subscription.tariff_id:
+                tariff = await get_tariff_by_id(db, subscription.tariff_id)
+                if tariff and tariff.period_prices:
+                    tariff_prices = {int(k): v for k, v in tariff.period_prices.items()}
+                    tariff_periods = sorted(tariff_prices.keys())
+
     buttons = []
-    periods = settings.get_available_subscription_periods()
-    periods = periods[:6]  # Limit to 6 periods
+
+    # Используем периоды тарифа в режиме тарифов, иначе стандартные
+    if tariff_periods:
+        periods = tariff_periods[:6]
+    else:
+        periods = settings.get_available_subscription_periods()[:6]
 
     for period in periods:
-        price_attr = f"PRICE_{period}_DAYS"
-        if hasattr(settings, price_attr):
-            base_price_kopeks = getattr(settings, price_attr)
+        # Получаем цену из тарифа или из PERIOD_PRICES
+        if tariff_prices and period in tariff_prices:
+            base_price_kopeks = tariff_prices[period]
+        else:
+            base_price_kopeks = PERIOD_PRICES.get(period, 0)
 
+        if base_price_kopeks > 0:
             # Calculate price with user's promo group discount using unified system
             price_info = calculate_user_price(user, base_price_kopeks, period, "period")
 
@@ -184,6 +209,11 @@ async def show_balance_menu(
     db_user: User,
     db: AsyncSession
 ):
+    # Проверяем, доступно ли сообщение
+    if isinstance(callback.message, InaccessibleMessage):
+        await callback.answer()
+        return
+
     texts = get_texts(db_user.language)
 
     balance_text = texts.BALANCE_INFO.format(
@@ -366,7 +396,19 @@ async def show_payment_methods(
         try:
             # Получаем цены для текущих параметров
             from app.config import PERIOD_PRICES
-            base_price_original = PERIOD_PRICES.get(duration_days, 0)
+            from app.database.crud.tariff import get_tariff_by_id
+
+            # В режиме тарифов берём цену из тарифа пользователя
+            base_price_original = 0
+            if settings.is_tariffs_mode() and subscription.tariff_id:
+                tariff = await get_tariff_by_id(db, subscription.tariff_id)
+                if tariff and tariff.period_prices:
+                    base_price_original = tariff.period_prices.get(str(duration_days), 0)
+
+            # Если не нашли в тарифе - используем PERIOD_PRICES
+            if base_price_original <= 0:
+                base_price_original = PERIOD_PRICES.get(duration_days, 0)
+
             period_discount_percent = db_user.get_promo_discount("period", duration_days)
             base_price, base_discount_total = apply_percentage_discount(
                 base_price_original,
@@ -436,6 +478,16 @@ async def show_payment_methods(
     full_text = payment_text + tariff_info
 
     keyboard = get_payment_methods_keyboard(0, db_user.language)
+
+    # Если сообщение недоступно, отправляем новое
+    if isinstance(callback.message, InaccessibleMessage):
+        await callback.message.answer(
+            full_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
 
     try:
         await callback.message.edit_text(

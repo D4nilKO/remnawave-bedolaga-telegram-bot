@@ -110,6 +110,18 @@ class YooKassaPaymentMixin:
             amount_rubles = amount_kopeks / 100
 
             payment_metadata = metadata.copy() if metadata else {}
+
+            # Всегда добавляем telegram_id в метаданные для возможности возврата платежа
+            if "user_telegram_id" not in payment_metadata:
+                try:
+                    from app.database.crud.user import get_user_by_id
+                    user = await get_user_by_id(db, user_id)
+                    if user and user.telegram_id:
+                        payment_metadata["user_telegram_id"] = str(user.telegram_id)
+                        payment_metadata["user_username"] = user.username or ""
+                except Exception as e:
+                    logger.warning(f"Не удалось получить telegram_id для user_id={user_id}: {e}")
+
             payment_metadata.update(
                 {
                     "user_id": str(user_id),
@@ -201,6 +213,18 @@ class YooKassaPaymentMixin:
             amount_rubles = amount_kopeks / 100
 
             payment_metadata = metadata.copy() if metadata else {}
+
+            # Всегда добавляем telegram_id в метаданные для возможности возврата платежа
+            if "user_telegram_id" not in payment_metadata:
+                try:
+                    from app.database.crud.user import get_user_by_id
+                    user = await get_user_by_id(db, user_id)
+                    if user and user.telegram_id:
+                        payment_metadata["user_telegram_id"] = str(user.telegram_id)
+                        payment_metadata["user_username"] = user.username or ""
+                except Exception as e:
+                    logger.warning(f"Не удалось получить telegram_id для user_id={user_id}: {e}")
+
             payment_metadata.update(
                 {
                     "user_id": str(user_id),
@@ -548,16 +572,20 @@ class YooKassaPaymentMixin:
             payment_description = getattr(payment, "description", "YooKassa платеж")
 
             payment_purpose = payment_metadata.get("payment_purpose", "")
+            payment_type = payment_metadata.get("type", "")
             is_simple_subscription = payment_purpose == "simple_subscription_purchase"
+            is_trial_payment = payment_type == "trial"
 
             transaction_type = (
                 TransactionType.SUBSCRIPTION_PAYMENT
-                if is_simple_subscription
+                if is_simple_subscription or is_trial_payment
                 else TransactionType.DEPOSIT
             )
             transaction_description = (
                 f"Оплата подписки через YooKassa: {payment_description}"
                 if is_simple_subscription
+                else f"Оплата пробной подписки через YooKassa: {payment_description}"
+                if is_trial_payment
                 else f"Пополнение через YooKassa: {payment_description}"
             )
 
@@ -590,7 +618,73 @@ class YooKassaPaymentMixin:
 
             user = await payment_module.get_user_by_id(db, payment.user_id)
             if user:
-                if is_simple_subscription:
+                if is_trial_payment:
+                    # Обработка платного триала
+                    logger.info(
+                        "YooKassa платеж %s обработан как оплата триала. Баланс пользователя %s не изменяется.",
+                        payment.yookassa_payment_id,
+                        user.id,
+                    )
+                    try:
+                        subscription_id = payment_metadata.get("subscription_id")
+                        if subscription_id:
+                            from app.database.crud.subscription import activate_pending_trial_subscription
+                            from app.services.subscription_service import SubscriptionService
+                            from app.services.admin_notification_service import AdminNotificationService
+
+                            subscription = await activate_pending_trial_subscription(
+                                db=db,
+                                subscription_id=int(subscription_id),
+                                user_id=user.id,
+                            )
+
+                            if subscription:
+                                logger.info(f"Триальная подписка {subscription_id} активирована для пользователя {user.id}")
+
+                                # Создаем пользователя в RemnaWave
+                                subscription_service = SubscriptionService()
+                                try:
+                                    await subscription_service.create_remnawave_user(db, subscription)
+                                except Exception as rw_error:
+                                    logger.error(f"Ошибка создания RemnaWave для триала: {rw_error}")
+
+                                # Уведомление админам
+                                if getattr(self, "bot", None):
+                                    try:
+                                        admin_notification_service = AdminNotificationService(self.bot)
+                                        await admin_notification_service.send_trial_activation_notification(
+                                            user=user,
+                                            subscription=subscription,
+                                            paid_amount=payment.amount_kopeks,
+                                            payment_method="YooKassa",
+                                        )
+                                    except Exception as admin_error:
+                                        logger.warning(f"Ошибка уведомления админов о триале: {admin_error}")
+
+                                # Уведомление пользователю
+                                if getattr(self, "bot", None):
+                                    try:
+                                        await self.bot.send_message(
+                                            chat_id=user.telegram_id,
+                                            text=(
+                                                f"🎉 <b>Пробная подписка активирована!</b>\n\n"
+                                                f"💳 Оплачено: {settings.format_price(payment.amount_kopeks)}\n"
+                                                f"📅 Период: {settings.TRIAL_DURATION_DAYS} дней\n"
+                                                f"📱 Устройств: {subscription.device_limit}\n\n"
+                                                f"Используйте меню для подключения к VPN."
+                                            ),
+                                            parse_mode="HTML",
+                                        )
+                                    except Exception as notify_error:
+                                        logger.warning(f"Ошибка уведомления пользователя о триале: {notify_error}")
+                            else:
+                                logger.error(f"Не удалось активировать триал {subscription_id} для {user.id}")
+                        else:
+                            logger.error(f"Отсутствует subscription_id в metadata триального платежа YooKassa")
+                    except Exception as trial_error:
+                        logger.error(f"Ошибка обработки триального платежа YooKassa: {trial_error}", exc_info=True)
+
+                elif is_simple_subscription:
                     logger.info(
                         "YooKassa платеж %s обработан как покупка подписки. Баланс пользователя %s не изменяется.",
                         payment.yookassa_payment_id,
@@ -753,58 +847,61 @@ class YooKassaPaymentMixin:
                                     exc_info=True,
                                 )
 
-                        if has_saved_cart and getattr(self, "bot", None):
-                            # Если у пользователя есть сохраненная корзина,
-                            # отправляем ему уведомление с кнопкой вернуться к оформлению
-                            from app.localization.texts import get_texts
-                            from aiogram import types
+                        # Если включен яркий промпт активации, пропускаем старое уведомление
+                        # т.к. оно будет отправлено через _send_payment_success_notification
+                        if not settings.SHOW_ACTIVATION_PROMPT_AFTER_TOPUP:
+                            if has_saved_cart and getattr(self, "bot", None):
+                                # Если у пользователя есть сохраненная корзина,
+                                # отправляем ему уведомление с кнопкой вернуться к оформлению
+                                from app.localization.texts import get_texts
+                                from aiogram import types
 
-                            texts = get_texts(user.language)
-                            cart_message = texts.BALANCE_TOPUP_CART_REMINDER_DETAILED.format(
-                                total_amount=settings.format_price(payment.amount_kopeks)
-                            )
+                                texts = get_texts(user.language)
+                                cart_message = texts.BALANCE_TOPUP_CART_REMINDER_DETAILED.format(
+                                    total_amount=settings.format_price(payment.amount_kopeks)
+                                )
 
-                            # Создаем клавиатуру с кнопками
-                            keyboard = types.InlineKeyboardMarkup(
-                                inline_keyboard=[
-                                    [
-                                        types.InlineKeyboardButton(
-                                            text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
-                                            callback_data="return_to_saved_cart",
-                                        )
-                                    ],
-                                    [
-                                        types.InlineKeyboardButton(
-                                            text="💰 Мой баланс",
-                                            callback_data="menu_balance",
-                                        )
-                                    ],
-                                    [
-                                        types.InlineKeyboardButton(
-                                            text="🏠 Главное меню",
-                                            callback_data="back_to_menu",
-                                        )
-                                    ],
-                                ]
-                            )
+                                # Создаем клавиатуру с кнопками
+                                keyboard = types.InlineKeyboardMarkup(
+                                    inline_keyboard=[
+                                        [
+                                            types.InlineKeyboardButton(
+                                                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
+                                                callback_data="return_to_saved_cart",
+                                            )
+                                        ],
+                                        [
+                                            types.InlineKeyboardButton(
+                                                text="💰 Мой баланс",
+                                                callback_data="menu_balance",
+                                            )
+                                        ],
+                                        [
+                                            types.InlineKeyboardButton(
+                                                text="🏠 Главное меню",
+                                                callback_data="back_to_menu",
+                                            )
+                                        ],
+                                    ]
+                                )
 
-                            await self.bot.send_message(
-                                chat_id=user.telegram_id,
-                                text=f"✅ Баланс пополнен на {settings.format_price(payment.amount_kopeks)}!\n\n"
-                                     f"⚠️ <b>Важно:</b> Пополнение баланса не активирует подписку автоматически. "
-                                     f"Обязательно активируйте подписку отдельно!\n\n"
-                                     f"🔄 При наличии сохранённой корзины подписки и включенной автопокупке, "
-                                     f"подписка будет приобретена автоматически после пополнения баланса.\n\n{cart_message}",
-                                reply_markup=keyboard,
-                            )
-                            logger.info(
-                                f"Отправлено уведомление с кнопкой возврата к оформлению подписки пользователю {user.id}"
-                            )
-                        else:
-                            logger.info(
-                                "У пользователя %s нет сохраненной корзины, бот недоступен или покупка уже выполнена",
-                                user.id,
-                            )
+                                await self.bot.send_message(
+                                    chat_id=user.telegram_id,
+                                    text=f"✅ Баланс пополнен на {settings.format_price(payment.amount_kopeks)}!\n\n"
+                                         f"⚠️ <b>Важно:</b> Пополнение баланса не активирует подписку автоматически. "
+                                         f"Обязательно активируйте подписку отдельно!\n\n"
+                                         f"🔄 При наличии сохранённой корзины подписки и включенной автопокупке, "
+                                         f"подписка будет приобретена автоматически после пополнения баланса.\n\n{cart_message}",
+                                    reply_markup=keyboard,
+                                )
+                                logger.info(
+                                    f"Отправлено уведомление с кнопкой возврата к оформлению подписки пользователю {user.id}"
+                                )
+                            else:
+                                logger.info(
+                                    "У пользователя %s нет сохраненной корзины, бот недоступен или покупка уже выполнена",
+                                    user.id,
+                                )
                     except Exception as e:
                         logger.error(
                             f"Критическая ошибка при работе с сохраненной корзиной для пользователя {user.id}: {e}",

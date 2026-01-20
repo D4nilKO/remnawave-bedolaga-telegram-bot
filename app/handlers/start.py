@@ -117,6 +117,24 @@ async def _apply_campaign_bonus_if_needed(
             devices=result.subscription_device_limit,
         )
 
+    if result.bonus_type == "none":
+        # Ссылка без награды - не показываем сообщение
+        return None
+
+    if result.bonus_type == "tariff":
+        traffic_text = texts.format_traffic(result.subscription_traffic_gb or 0)
+        return texts.t(
+            "CAMPAIGN_BONUS_TARIFF",
+            "🎁 Вам выдан тариф '{tariff_name}' на {days} дней!\n"
+            "📊 Трафик: {traffic}\n"
+            "📱 Устройств: {devices}",
+        ).format(
+            tariff_name=result.tariff_name or "Подарочный",
+            days=result.tariff_duration_days,
+            traffic=traffic_text,
+            devices=result.subscription_device_limit,
+        )
+
     return None
 
 
@@ -1968,8 +1986,17 @@ async def required_sub_channel_check(
             await state.set_data(state_data)
 
             if settings.SKIP_RULES_ACCEPT:
-                if settings.SKIP_REFERRAL_CODE:
+                if settings.SKIP_REFERRAL_CODE or state_data.get('referral_code'):
                     from app.utils.user_utils import generate_unique_referral_code
+
+                    # Проверяем реферальный код из ссылки
+                    referrer_id = None
+                    ref_code_from_link = state_data.get('referral_code')
+                    if ref_code_from_link:
+                        referrer = await get_user_by_referral_code(db, ref_code_from_link)
+                        if referrer:
+                            referrer_id = referrer.id
+                            logger.info(f"✅ CHANNEL CHECK: Реферер найден из ссылки: {referrer.id}")
 
                     referral_code = await generate_unique_referral_code(db, query.from_user.id)
 
@@ -1981,8 +2008,17 @@ async def required_sub_channel_check(
                         last_name=query.from_user.last_name,
                         language=language,
                         referral_code=referral_code,
+                        referred_by_id=referrer_id,
                     )
                     await db.refresh(user, ['subscription'])
+
+                    # Обрабатываем реферальную регистрацию
+                    if referrer_id:
+                        try:
+                            await process_referral_registration(db, user.id, referrer_id, bot)
+                            logger.info(f"✅ CHANNEL CHECK: Реферальная регистрация обработана для {user.id}")
+                        except Exception as e:
+                            logger.error(f"Ошибка при обработке реферальной регистрации: {e}")
 
                     # Показываем главное меню после создания пользователя
                     has_active_subscription, subscription_is_active = _calculate_subscription_flags(

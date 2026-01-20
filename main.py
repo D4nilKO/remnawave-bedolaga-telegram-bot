@@ -35,11 +35,14 @@ from app.services.broadcast_service import broadcast_service
 from app.services.referral_contest_service import referral_contest_service
 from app.services.contest_rotation_service import contest_rotation_service
 from app.services.nalogo_queue_service import nalogo_queue_service
+from app.services.traffic_monitoring_service import traffic_monitoring_scheduler
+from app.services.daily_subscription_service import daily_subscription_service
 from app.utils.startup_timeline import StartupTimeline
 from app.utils.timezone import TimezoneAwareFormatter
 from app.utils.log_handlers import LevelFilterHandler, ExcludePaymentFilter
 from app.utils.payment_logger import payment_logger, configure_payment_logger
 from app.services.log_rotation_service import log_rotation_service
+from app.services.ban_notification_service import ban_notification_service
 
 
 class GracefulExit:
@@ -145,6 +148,10 @@ async def main():
     logging.getLogger("aiogram").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
     logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+    # Скрываем спам от WebSocket подключений (connection open/closed)
+    logging.getLogger("uvicorn.protocols.websockets.websockets_impl").setLevel(logging.WARNING)
+    logging.getLogger("websockets.server").setLevel(logging.WARNING)
+    logging.getLogger("websockets").setLevel(logging.WARNING)
 
     logger = logging.getLogger(__name__)
     timeline = StartupTimeline(logger, "Bedolaga Remnawave Bot")
@@ -172,6 +179,8 @@ async def main():
     monitoring_task = None
     maintenance_task = None
     version_check_task = None
+    traffic_monitoring_task = None
+    daily_subscription_task = None
     polling_task = None
     web_api_server = None
     telegram_webhook_enabled = False
@@ -218,6 +227,34 @@ async def main():
             )
 
         async with timeline.stage(
+            "Синхронизация тарифов из конфига",
+            "💰",
+            success_message="Тарифы синхронизированы",
+        ) as stage:
+            try:
+                from app.database.crud.tariff import ensure_tariffs_synced
+                from app.database.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as db:
+                    await ensure_tariffs_synced(db)
+            except Exception as error:
+                stage.warning(f"Не удалось синхронизировать тарифы: {error}")
+                logger.error(f"❌ Не удалось синхронизировать тарифы: {error}")
+
+        async with timeline.stage(
+            "Синхронизация серверов из RemnaWave",
+            "🖥️",
+            success_message="Серверы синхронизированы",
+        ) as stage:
+            try:
+                from app.database.crud.server_squad import ensure_servers_synced
+                from app.database.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as db:
+                    await ensure_servers_synced(db)
+            except Exception as error:
+                stage.warning(f"Не удалось синхронизировать серверы: {error}")
+                logger.error(f"❌ Не удалось синхронизировать серверы: {error}")
+
+        async with timeline.stage(
             "Загрузка конфигурации из БД",
             "⚙️",
             success_message="Конфигурация загружена",
@@ -237,6 +274,9 @@ async def main():
         monitoring_service.bot = bot
         maintenance_service.set_bot(bot)
         broadcast_service.set_bot(bot)
+        ban_notification_service.set_bot(bot)
+        traffic_monitoring_scheduler.set_bot(bot)
+        daily_subscription_service.set_bot(bot)
 
         from app.services.admin_notification_service import AdminNotificationService
 
@@ -542,7 +582,7 @@ async def main():
                     await bot.set_webhook(
                         url=webhook_url,
                         secret_token=settings.WEBHOOK_SECRET_TOKEN,
-                        drop_pending_updates=settings.WEBHOOK_DROP_PENDING_UPDATES,
+                        drop_pending_updates=False,  # Обрабатываем накопившиеся обновления
                         allowed_updates=allowed_updates,
                     )
                     stage.log(f"Webhook установлен: {webhook_url}")
@@ -578,6 +618,37 @@ async def main():
                 stage.skip("Служба техработ уже активна")
 
         async with timeline.stage(
+            "Мониторинг трафика",
+            "📊",
+            success_message="Мониторинг трафика запущен",
+        ) as stage:
+            if traffic_monitoring_scheduler.is_enabled():
+                traffic_monitoring_task = asyncio.create_task(
+                    traffic_monitoring_scheduler.start_monitoring()
+                )
+                # Показываем информацию о новом мониторинге v2
+                status_info = traffic_monitoring_scheduler.get_status_info()
+                stage.log(status_info)
+            else:
+                traffic_monitoring_task = None
+                stage.skip("Мониторинг трафика отключен настройками")
+
+        async with timeline.stage(
+            "Суточные подписки",
+            "💳",
+            success_message="Сервис суточных подписок запущен",
+        ) as stage:
+            if daily_subscription_service.is_enabled():
+                daily_subscription_task = asyncio.create_task(
+                    daily_subscription_service.start_monitoring()
+                )
+                interval_minutes = daily_subscription_service.get_check_interval_minutes()
+                stage.log(f"Интервал проверки: {interval_minutes} мин")
+            else:
+                daily_subscription_task = None
+                stage.skip("Суточные подписки отключены настройками")
+
+        async with timeline.stage(
             "Сервис проверки версий",
             "📄",
             success_message="Проверка версий запущена",
@@ -597,8 +668,8 @@ async def main():
             success_message="Aiogram polling запущен",
         ) as stage:
             if polling_enabled:
-                polling_task = asyncio.create_task(dp.start_polling(bot, skip_updates=True))
-                stage.log("skip_updates=True")
+                polling_task = asyncio.create_task(dp.start_polling(bot, skip_updates=False))
+                stage.log("skip_updates=False — накопившиеся обновления будут обработаны")
             else:
                 polling_task = None
                 stage.skip("Polling отключен режимом работы")
@@ -628,6 +699,8 @@ async def main():
             webhook_lines.append(f"WATA: {_fmt(settings.WATA_WEBHOOK_PATH)}")
         if settings.is_heleket_enabled():
             webhook_lines.append(f"Heleket: {_fmt(settings.HELEKET_WEBHOOK_PATH)}")
+        if settings.is_freekassa_enabled():
+            webhook_lines.append(f"Freekassa: {_fmt(settings.FREEKASSA_WEBHOOK_PATH)}")
 
         timeline.log_section(
             "Активные webhook endpoints",
@@ -638,6 +711,8 @@ async def main():
         services_lines = [
             f"Мониторинг: {'Включен' if monitoring_task else 'Отключен'}",
             f"Техработы: {'Включен' if maintenance_task else 'Отключен'}",
+            f"Мониторинг трафика: {'Включен' if traffic_monitoring_task else 'Отключен'}",
+            f"Суточные подписки: {'Включен' if daily_subscription_task else 'Отключен'}",
             f"Проверка версий: {'Включен' if version_check_task else 'Отключен'}",
             f"Отчеты: {'Включен' if reporting_service.is_running() else 'Отключен'}",
         ]
@@ -681,6 +756,26 @@ async def main():
                         if settings.is_version_check_enabled():
                             logger.info("🔄 Перезапуск сервиса проверки версий...")
                             version_check_task = asyncio.create_task(version_service.start_periodic_check())
+
+                if traffic_monitoring_task and traffic_monitoring_task.done():
+                    exception = traffic_monitoring_task.exception()
+                    if exception:
+                        logger.error(f"Мониторинг трафика завершился с ошибкой: {exception}")
+                        if traffic_monitoring_scheduler.is_enabled():
+                            logger.info("🔄 Перезапуск мониторинга трафика...")
+                            traffic_monitoring_task = asyncio.create_task(
+                                traffic_monitoring_scheduler.start_monitoring()
+                            )
+
+                if daily_subscription_task and daily_subscription_task.done():
+                    exception = daily_subscription_task.exception()
+                    if exception:
+                        logger.error(f"Сервис суточных подписок завершился с ошибкой: {exception}")
+                        if daily_subscription_service.is_enabled():
+                            logger.info("🔄 Перезапуск сервиса суточных подписок...")
+                            daily_subscription_task = asyncio.create_task(
+                                daily_subscription_service.start_monitoring()
+                            )
 
                 if auto_verification_active and not auto_payment_verification_service.is_running():
                     logger.warning(
@@ -739,6 +834,24 @@ async def main():
             version_check_task.cancel()
             try:
                 await version_check_task
+            except asyncio.CancelledError:
+                pass
+
+        if traffic_monitoring_task and not traffic_monitoring_task.done():
+            logger.info("ℹ️ Остановка мониторинга трафика...")
+            traffic_monitoring_scheduler.stop_monitoring()
+            traffic_monitoring_task.cancel()
+            try:
+                await traffic_monitoring_task
+            except asyncio.CancelledError:
+                pass
+
+        if daily_subscription_task and not daily_subscription_task.done():
+            logger.info("ℹ️ Остановка сервиса суточных подписок...")
+            daily_subscription_service.stop_monitoring()
+            daily_subscription_task.cancel()
+            try:
+                await daily_subscription_task
             except asyncio.CancelledError:
                 pass
 
