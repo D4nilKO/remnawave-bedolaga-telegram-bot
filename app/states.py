@@ -12,16 +12,21 @@ class SubscriptionStates(StatesGroup):
     selecting_countries = State()
     selecting_devices = State()
     confirming_purchase = State()
-    
+
     adding_countries = State()
     adding_traffic = State()
     adding_devices = State()
     extending_subscription = State()
     confirming_traffic_reset = State()
     cart_saved_for_topup = State()
-    
+
     # Состояния для простой подписки
     waiting_for_simple_subscription_payment_method = State()
+
+    # Состояния для кастомных дней/трафика при покупке тарифа
+    selecting_custom_days = State()
+    selecting_custom_traffic = State()
+    confirming_custom_purchase = State()
 
 class BalanceStates(StatesGroup):
     waiting_for_amount = State()
@@ -52,6 +57,7 @@ class AdminStates(StatesGroup):
     setting_promocode_value = State()
     setting_promocode_uses = State()
     setting_promocode_expiry = State()
+    setting_discount_hours = State()  # Для DISCOUNT: ввод срока действия скидки в часах
     selecting_promo_group = State()
 
     creating_campaign_name = State()
@@ -62,6 +68,9 @@ class AdminStates(StatesGroup):
     creating_campaign_subscription_traffic = State()
     creating_campaign_subscription_devices = State()
     creating_campaign_subscription_servers = State()
+    # Состояния для создания кампании с тарифом
+    creating_campaign_tariff_select = State()
+    creating_campaign_tariff_days = State()
 
     editing_campaign_name = State()
     editing_campaign_start = State()
@@ -70,6 +79,9 @@ class AdminStates(StatesGroup):
     editing_campaign_subscription_traffic = State()
     editing_campaign_subscription_devices = State()
     editing_campaign_subscription_servers = State()
+    # Состояния для редактирования кампании с тарифом
+    editing_campaign_tariff_select = State()
+    editing_campaign_tariff_days = State()
 
     waiting_for_broadcast_message = State()
     waiting_for_broadcast_media = State()
@@ -110,6 +122,9 @@ class AdminStates(StatesGroup):
     editing_user_traffic = State()
     editing_user_referrals = State()
     editing_user_referral_percent = State()
+
+    # Тестовое начисление реферального дохода
+    test_referral_earning_input = State()
 
     editing_rules_page = State()
     editing_privacy_policy = State()
@@ -174,9 +189,13 @@ class AdminStates(StatesGroup):
     editing_tariff_tier = State()
     editing_tariff_prices = State()
     editing_tariff_device_price = State()
+    editing_tariff_max_devices = State()
     editing_tariff_trial_days = State()
     editing_tariff_squads = State()
     editing_tariff_promo_groups = State()
+    editing_tariff_traffic_topup_packages = State()
+    editing_tariff_max_topup_traffic = State()
+    editing_tariff_daily_price = State()
 
 
 class SupportStates(StatesGroup):
@@ -239,3 +258,9 @@ class AdminSubmenuStates(StatesGroup):
 
 class BlacklistStates(StatesGroup):
     waiting_for_blacklist_url = State()
+
+
+class ReferralWithdrawalStates(StatesGroup):
+    waiting_for_amount = State()
+    waiting_for_payment_details = State()
+    confirming = State()

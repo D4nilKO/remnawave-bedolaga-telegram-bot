@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.database.database import get_db
+from app.database.database import AsyncSessionLocal
 from app.database.crud.discount_offer import (
     deactivate_expired_offers,
     get_latest_claimed_offer_for_user,
@@ -46,6 +46,7 @@ from app.database.models import (
     MonitoringLog,
     SubscriptionStatus,
     Subscription,
+    Tariff,
     User,
     Ticket,
     TicketStatus,
@@ -189,7 +190,7 @@ class MonitoringService:
             pass
     
     async def _monitoring_cycle(self):
-        async for db in get_db():
+        async with AsyncSessionLocal() as db:
             try:
                 await self._cleanup_notification_cache()
 
@@ -218,23 +219,26 @@ class MonitoringService:
                     await self._process_autopayments(db)
                 await self._cleanup_inactive_users(db)
                 await self._sync_with_remnawave(db)
-                
+
                 await self._log_monitoring_event(
-                    db, "monitoring_cycle_completed", 
-                    "Цикл мониторинга успешно завершен", 
+                    db, "monitoring_cycle_completed",
+                    "Цикл мониторинга успешно завершен",
                     {"timestamp": datetime.utcnow().isoformat()}
                 )
-                
+                await db.commit()
+
             except Exception as e:
                 logger.error(f"Ошибка в цикле мониторинга: {e}")
-                await self._log_monitoring_event(
-                    db, "monitoring_cycle_error", 
-                    f"Ошибка в цикле мониторинга: {str(e)}", 
-                    {"error": str(e)},
-                    is_success=False
-                )
-            finally:
-                break 
+                try:
+                    await self._log_monitoring_event(
+                        db, "monitoring_cycle_error",
+                        f"Ошибка в цикле мониторинга: {str(e)}",
+                        {"error": str(e)},
+                        is_success=False
+                    )
+                except Exception:
+                    pass
+                await db.rollback() 
     
     async def _cleanup_notification_cache(self):
         current_time = datetime.utcnow()
@@ -280,12 +284,18 @@ class MonitoringService:
             if not user or not user.remnawave_uuid:
                 logger.error(f"RemnaWave UUID не найден для пользователя {subscription.user_id}")
                 return None
-            
+
+            # Обновляем subscription в сессии, чтобы избежать detached instance
+            try:
+                await db.refresh(subscription)
+            except Exception:
+                pass
+
             current_time = datetime.utcnow()
-            is_active = (subscription.status == SubscriptionStatus.ACTIVE.value and 
+            is_active = (subscription.status == SubscriptionStatus.ACTIVE.value and
                         subscription.end_date > current_time)
-            
-            if (subscription.status == SubscriptionStatus.ACTIVE.value and 
+
+            if (subscription.status == SubscriptionStatus.ACTIVE.value and
                 subscription.end_date <= current_time):
                 subscription.status = SubscriptionStatus.EXPIRED.value
                 await db.commit()
@@ -530,7 +540,10 @@ class MonitoringService:
             )
             result = await db.execute(
                 select(Subscription)
-                .options(selectinload(Subscription.user))
+                .options(
+                    selectinload(Subscription.user),
+                    selectinload(Subscription.tariff),
+                )
                 .where(
                     and_(
                         Subscription.is_trial.is_(True),
@@ -574,8 +587,9 @@ class MonitoringService:
                     )
                     continue
                 except TelegramBadRequest as error:
-                    logger.error(
-                        "❌ Ошибка Telegram при проверке подписки пользователя %s: %s",
+                    # PARTICIPANT_ID_INVALID - пользователь никогда не был в канале, это нормально
+                    logger.warning(
+                        "⚠️ Ошибка Telegram при проверке подписки пользователя %s: %s",
                         user.telegram_id,
                         error,
                     )
@@ -694,7 +708,10 @@ class MonitoringService:
 
             result = await db.execute(
                 select(Subscription)
-                .options(selectinload(Subscription.user))
+                .options(
+                    selectinload(Subscription.user),
+                    selectinload(Subscription.tariff),
+                )
                 .where(
                     and_(
                         Subscription.is_trial == False,
@@ -703,7 +720,14 @@ class MonitoringService:
                 )
             )
 
-            subscriptions = result.scalars().all()
+            all_subscriptions = result.scalars().all()
+
+            # Исключаем суточные тарифы - для них отдельная логика
+            subscriptions = [
+                sub for sub in all_subscriptions
+                if not (sub.tariff and getattr(sub.tariff, 'is_daily', False))
+            ]
+
             sent_day1 = 0
             sent_wave2 = 0
             sent_wave3 = 0
@@ -811,27 +835,41 @@ class MonitoringService:
     async def _get_expiring_paid_subscriptions(self, db: AsyncSession, days_before: int) -> List[Subscription]:
         current_time = datetime.utcnow()
         threshold_date = current_time + timedelta(days=days_before)
-        
+
         result = await db.execute(
             select(Subscription)
-            .options(selectinload(Subscription.user))
+            .options(
+                selectinload(Subscription.user),
+                selectinload(Subscription.tariff),
+            )
             .where(
                 and_(
                     Subscription.status == SubscriptionStatus.ACTIVE.value,
-                    Subscription.is_trial == False, 
+                    Subscription.is_trial == False,
                     Subscription.end_date > current_time,
                     Subscription.end_date <= threshold_date
                 )
             )
         )
-        
+
         logger.debug(f"🔍 Поиск платных подписок, истекающих в ближайшие {days_before} дней")
         logger.debug(f"📅 Текущее время: {current_time}")
         logger.debug(f"📅 Пороговая дата: {threshold_date}")
-        
-        subscriptions = result.scalars().all()
+
+        all_subscriptions = result.scalars().all()
+
+        # Исключаем суточные тарифы - для них отдельная логика списания
+        subscriptions = [
+            sub for sub in all_subscriptions
+            if not (sub.tariff and getattr(sub.tariff, 'is_daily', False))
+        ]
+
+        excluded_count = len(all_subscriptions) - len(subscriptions)
+        if excluded_count > 0:
+            logger.debug(f"🔄 Исключено {excluded_count} суточных подписок из уведомлений")
+
         logger.info(f"📊 Найдено {len(subscriptions)} платных подписок для уведомлений")
-        
+
         return subscriptions
     
     @staticmethod
@@ -1696,11 +1734,13 @@ class MonitoringService:
             interval_seconds = 60
         while self.is_running:
             try:
-                async for db in get_db():
+                async with AsyncSessionLocal() as db:
                     try:
                         await self._check_ticket_sla(db)
-                    finally:
-                        break
+                        await db.commit()
+                    except Exception as e:
+                        logger.error(f"Ошибка в SLA-проверке: {e}")
+                        await db.rollback()
             except asyncio.CancelledError:
                 break
             except Exception as e:

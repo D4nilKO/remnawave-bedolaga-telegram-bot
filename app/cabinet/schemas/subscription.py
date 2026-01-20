@@ -12,6 +12,16 @@ class ServerInfo(BaseModel):
     country_code: Optional[str] = None
 
 
+class TrafficPurchaseInfo(BaseModel):
+    """Purchased traffic package info."""
+    id: int
+    traffic_gb: int
+    expires_at: datetime
+    created_at: datetime
+    days_remaining: int
+    progress_percent: float
+
+
 class SubscriptionResponse(BaseModel):
     """User subscription data."""
     id: int
@@ -32,8 +42,17 @@ class SubscriptionResponse(BaseModel):
     autopay_enabled: bool
     autopay_days_before: int
     subscription_url: Optional[str] = None
+    hide_subscription_link: bool = False  # Скрывать ли отображение ссылки (но кнопки работают)
     is_active: bool
     is_expired: bool
+    traffic_purchases: List[TrafficPurchaseInfo] = []
+    # Daily tariff fields
+    is_daily: bool = False
+    is_daily_paused: bool = False
+    daily_price_kopeks: Optional[int] = None
+    next_daily_charge_at: Optional[datetime] = None  # When next daily charge will happen
+    tariff_id: Optional[int] = None
+    tariff_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -103,3 +122,12 @@ class PurchaseSelectionRequest(BaseModel):
 class PurchasePreviewRequest(BaseModel):
     """Request to preview purchase pricing."""
     selection: PurchaseSelectionRequest
+
+
+# ============ Tariff Purchase Schemas ============
+
+class TariffPurchaseRequest(BaseModel):
+    """Request to purchase a tariff."""
+    tariff_id: int = Field(..., description="Tariff ID to purchase")
+    period_days: int = Field(..., description="Period in days")
+    traffic_gb: Optional[int] = Field(None, ge=0, description="Custom traffic in GB (for custom_traffic_enabled tariffs)")

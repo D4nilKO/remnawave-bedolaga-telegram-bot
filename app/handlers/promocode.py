@@ -1,6 +1,7 @@
 import logging
 from aiogram import Dispatcher, types, F, Bot
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InaccessibleMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.states import PromoCodeStates
@@ -22,12 +23,19 @@ async def show_promocode_menu(
     state: FSMContext
 ):
     texts = get_texts(db_user.language)
-    
-    await callback.message.edit_text(
-        texts.PROMOCODE_ENTER,
-        reply_markup=get_back_keyboard(db_user.language)
-    )
-    
+
+    # Если сообщение недоступно, отправляем новое
+    if isinstance(callback.message, InaccessibleMessage):
+        await callback.message.answer(
+            texts.PROMOCODE_ENTER,
+            reply_markup=get_back_keyboard(db_user.language)
+        )
+    else:
+        await callback.message.edit_text(
+            texts.PROMOCODE_ENTER,
+            reply_markup=get_back_keyboard(db_user.language)
+        )
+
     await state.set_state(PromoCodeStates.waiting_for_code)
     await callback.answer()
 
@@ -128,6 +136,10 @@ async def process_promocode(
             "not_first_purchase": texts.t(
                 "PROMOCODE_NOT_FIRST_PURCHASE",
                 "❌ Этот промокод доступен только для первой покупки"
+            ),
+            "active_discount_exists": texts.t(
+                "PROMOCODE_ACTIVE_DISCOUNT_EXISTS",
+                "❌ У вас уже есть активная скидка. Используйте её перед активацией новой."
             ),
             "server_error": texts.ERROR
         }
