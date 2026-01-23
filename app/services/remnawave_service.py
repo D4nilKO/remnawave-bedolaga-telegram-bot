@@ -1430,13 +1430,30 @@ class RemnaWaveService:
                                 logger.warning(f"⚠️ Не удалось удалить серверы подписки: {servers_error}")
                             
                             from app.database.models import SubscriptionStatus
-                            
+
+                            # Проверяем, была ли это платная подписка
+                            was_paid = (
+                                not subscription.is_trial
+                                or getattr(db_user, 'has_had_paid_subscription', False)
+                            )
+
                             subscription.status = SubscriptionStatus.DISABLED.value
-                            subscription.is_trial = True 
-                            subscription.end_date = datetime.utcnow()
-                            subscription.traffic_limit_gb = 0
-                            subscription.traffic_used_gb = 0.0
-                            subscription.device_limit = 1
+
+                            if was_paid:
+                                # Для платных подписок - НЕ сбрасываем is_trial и end_date!
+                                # Сохраняем оригинальные значения чтобы можно было восстановить
+                                logger.warning(
+                                    f"⚠️ ПЛАТНАЯ подписка пользователя {telegram_id} отключена (нет в панели), "
+                                    f"но is_trial={subscription.is_trial} и end_date={subscription.end_date} СОХРАНЕНЫ"
+                                )
+                            else:
+                                # Для триальных подписок - сбрасываем как раньше
+                                subscription.is_trial = True
+                                subscription.end_date = datetime.utcnow()
+                                subscription.traffic_limit_gb = 0
+                                subscription.traffic_used_gb = 0.0
+                                subscription.device_limit = 1
+
                             subscription.connected_squads = []
                             subscription.autopay_enabled = False
                             subscription.remnawave_short_uuid = None
@@ -1620,21 +1637,43 @@ class RemnaWaveService:
             
             if expire_at_str:
                 expire_at = self._parse_remnawave_date(expire_at_str)
-                
-                if abs((subscription.end_date - expire_at).total_seconds()) > 60: 
-                    subscription.end_date = expire_at
-                    logger.debug(f"Обновлена дата окончания подписки до {expire_at}")
+
+                # КРИТИЧНО: НЕ перезаписываем end_date если локальная дата ПОЗЖЕ
+                # Это защищает от ситуации когда подписка была продлена в боте,
+                # но RemnaWave ещё не получил обновление или вернул старую дату
+                if abs((subscription.end_date - expire_at).total_seconds()) > 60:
+                    if expire_at > subscription.end_date:
+                        # RemnaWave имеет более позднюю дату - обновляем
+                        subscription.end_date = expire_at
+                        logger.debug(f"Обновлена дата окончания подписки до {expire_at}")
+                    else:
+                        # Локальная дата позже - НЕ перезаписываем, логируем предупреждение
+                        logger.warning(
+                            f"⚠️ Sync: пропускаем обновление end_date для user {getattr(user, 'telegram_id', '?')}: "
+                            f"локальная дата ({subscription.end_date}) позже чем в RemnaWave ({expire_at})"
+                        )
             
             current_time = self._now_utc()
             if panel_status == 'ACTIVE' and subscription.end_date > current_time:
                 new_status = SubscriptionStatus.ACTIVE.value
-            elif subscription.end_date <= current_time:
-                new_status = SubscriptionStatus.EXPIRED.value
             elif panel_status == 'DISABLED':
                 new_status = SubscriptionStatus.DISABLED.value
+            elif subscription.end_date <= current_time:
+                # КРИТИЧНО: НЕ деактивируем если текущий статус ACTIVE
+                # Это защищает от race condition когда sync использует старую end_date из памяти,
+                # а реальная end_date уже обновлена продлением
+                if subscription.status == SubscriptionStatus.ACTIVE.value:
+                    logger.warning(
+                        f"⚠️ Sync: пропускаем деактивацию подписки user {getattr(user, 'telegram_id', '?')}: "
+                        f"статус ACTIVE, end_date в памяти ({subscription.end_date}) <= now. "
+                        f"Деактивация будет выполнена через middleware с буфером."
+                    )
+                    new_status = subscription.status  # Сохраняем текущий статус
+                else:
+                    new_status = SubscriptionStatus.EXPIRED.value
             else:
-                new_status = subscription.status 
-            
+                new_status = subscription.status
+
             if subscription.status != new_status:
                 subscription.status = new_status
                 logger.debug(f"Обновлен статус подписки: {new_status}")
@@ -2143,7 +2182,25 @@ class RemnaWaveService:
             return False
 
     async def force_cleanup_user_data(self, db: AsyncSession, user: User) -> bool:
+        """
+        ОПАСНАЯ ФУНКЦИЯ: Полностью сбрасывает все данные пользователя включая баланс!
+        Используйте только для полной очистки пользователя.
+        """
         try:
+            # Предупреждение для платных пользователей
+            was_paid = (
+                user.has_had_paid_subscription
+                or (user.subscription and not user.subscription.is_trial)
+                or user.balance_kopeks > 0
+            )
+            if was_paid:
+                logger.warning(
+                    f"⚠️ ВНИМАНИЕ: force_cleanup_user_data вызвана для ПЛАТНОГО пользователя {user.telegram_id}! "
+                    f"has_had_paid_subscription={user.has_had_paid_subscription}, "
+                    f"balance={user.balance_kopeks}, "
+                    f"is_trial={user.subscription.is_trial if user.subscription else 'N/A'}"
+                )
+
             logger.info(f"🗑️ ПРИНУДИТЕЛЬНАЯ полная очистка данных пользователя {user.telegram_id}")
             
             if user.remnawave_uuid:
@@ -2384,8 +2441,15 @@ class RemnaWaveService:
                         issues_fixed = 0
                     
                         current_time = self._now_utc()
-                        if subscription.end_date <= current_time and subscription.status == SubscriptionStatus.ACTIVE.value:
-                            logger.info(f"🔧 Исправляем статус просроченной подписки {user.telegram_id}")
+                        # Добавляем буфер 5 минут для защиты от race condition при продлении
+                        expiry_buffer = timedelta(minutes=5)
+                        if (subscription.end_date + expiry_buffer <= current_time and
+                            subscription.status == SubscriptionStatus.ACTIVE.value):
+                            time_since_expiry = current_time - subscription.end_date
+                            logger.warning(
+                                f"🔧 fix_data_issues: деактивируем подписку {subscription.id} "
+                                f"(user={user.telegram_id}), просрочена на {time_since_expiry}"
+                            )
                             subscription.status = SubscriptionStatus.EXPIRED.value
                             issues_fixed += 1
                 
