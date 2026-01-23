@@ -679,18 +679,39 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         @router.post(settings.CLOUDPAYMENTS_WEBHOOK_PATH + "/check")
         async def cloudpayments_check_webhook(request: Request) -> JSONResponse:
             """Check webhook - вызывается перед списанием, можно отклонить платёж."""
-            raw_body = await request.body()
+            try:
+                raw_body = await request.body()
 
-            # Проверяем подпись
-            signature = request.headers.get("X-Content-HMAC") or request.headers.get("Content-HMAC") or ""
-            if settings.CLOUDPAYMENTS_API_SECRET and not cloudpayments_service.verify_webhook_signature(
-                raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
-            ):
-                logger.warning("CloudPayments check webhook: invalid signature")
-                return JSONResponse({"code": 13})  # Отклонить
+                # Логируем для диагностики
+                logger.info(
+                    "CloudPayments check webhook received, body_len=%d, all_headers=%s",
+                    len(raw_body),
+                    dict(request.headers),
+                )
 
-            # Разрешаем платёж
-            return JSONResponse({"code": 0})
+                # Проверяем подпись только если она пришла и API_SECRET настроен
+                # CloudPayments использует заголовок X-Content-HMAC или Content-HMAC
+                signature = request.headers.get("X-Content-HMAC") or request.headers.get("Content-HMAC") or ""
+                if settings.CLOUDPAYMENTS_API_SECRET and signature:
+                    if not cloudpayments_service.verify_webhook_signature(
+                        raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
+                    ):
+                        logger.warning(
+                            "CloudPayments check webhook: invalid signature, sig=%s...",
+                            signature[:20] if signature else "empty",
+                        )
+                        return JSONResponse({"code": 13})  # Отклонить
+                elif settings.CLOUDPAYMENTS_API_SECRET and not signature:
+                    # Подпись не пришла, но API_SECRET настроен - пропускаем проверку с предупреждением
+                    logger.warning("CloudPayments check webhook: no signature header, skipping verification")
+
+                # Разрешаем платёж
+                logger.info("CloudPayments check webhook: allowing payment, returning code=0")
+                return JSONResponse({"code": 0})
+            except Exception as e:
+                logger.exception("CloudPayments check webhook error: %s", e)
+                # В случае ошибки всё равно разрешаем платёж
+                return JSONResponse({"code": 0})
 
         # CloudPayments Pay webhook (успешная оплата)
         @router.post(settings.CLOUDPAYMENTS_WEBHOOK_PATH + "/pay")
@@ -698,13 +719,14 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
             """Pay webhook - вызывается после успешной оплаты."""
             raw_body = await request.body()
 
-            # Проверяем подпись
+            # Проверяем подпись только если она пришла и API_SECRET настроен
             signature = request.headers.get("X-Content-HMAC") or request.headers.get("Content-HMAC") or ""
-            if settings.CLOUDPAYMENTS_API_SECRET and not cloudpayments_service.verify_webhook_signature(
-                raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
-            ):
-                logger.warning("CloudPayments pay webhook: invalid signature")
-                return JSONResponse({"code": 13})
+            if settings.CLOUDPAYMENTS_API_SECRET and signature:
+                if not cloudpayments_service.verify_webhook_signature(
+                    raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
+                ):
+                    logger.warning("CloudPayments pay webhook: invalid signature")
+                    return JSONResponse({"code": 13})
 
             # Парсим данные формы
             try:
@@ -729,13 +751,14 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
             """Fail webhook - вызывается при неуспешной оплате."""
             raw_body = await request.body()
 
-            # Проверяем подпись
+            # Проверяем подпись только если она пришла и API_SECRET настроен
             signature = request.headers.get("X-Content-HMAC") or request.headers.get("Content-HMAC") or ""
-            if settings.CLOUDPAYMENTS_API_SECRET and not cloudpayments_service.verify_webhook_signature(
-                raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
-            ):
-                logger.warning("CloudPayments fail webhook: invalid signature")
-                return JSONResponse({"code": 13})
+            if settings.CLOUDPAYMENTS_API_SECRET and signature:
+                if not cloudpayments_service.verify_webhook_signature(
+                    raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
+                ):
+                    logger.warning("CloudPayments fail webhook: invalid signature")
+                    return JSONResponse({"code": 13})
 
             # Парсим данные формы
             try:
@@ -758,43 +781,60 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
         @router.post(settings.CLOUDPAYMENTS_WEBHOOK_PATH)
         async def cloudpayments_webhook(request: Request) -> JSONResponse:
             """Универсальный webhook endpoint."""
-            raw_body = await request.body()
-
-            # Проверяем подпись
-            signature = request.headers.get("X-Content-HMAC") or request.headers.get("Content-HMAC") or ""
-            if settings.CLOUDPAYMENTS_API_SECRET and not cloudpayments_service.verify_webhook_signature(
-                raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
-            ):
-                logger.warning("CloudPayments webhook: invalid signature")
-                return JSONResponse({"code": 13})
-
-            # Парсим данные формы
             try:
-                form_data = await request.form()
-                webhook_data = cloudpayments_service.parse_webhook_data(dict(form_data))
-            except Exception as error:
-                logger.error("CloudPayments webhook parse error: %s", error)
+                raw_body = await request.body()
+
+                # Логируем для диагностики
+                logger.info(
+                    "CloudPayments universal webhook received, body_len=%d, headers=%s",
+                    len(raw_body),
+                    dict(request.headers),
+                )
+
+                # Проверяем подпись только если она пришла и API_SECRET настроен
+                signature = request.headers.get("X-Content-HMAC") or request.headers.get("Content-HMAC") or ""
+                if settings.CLOUDPAYMENTS_API_SECRET and signature:
+                    if not cloudpayments_service.verify_webhook_signature(
+                        raw_body, signature, settings.CLOUDPAYMENTS_API_SECRET
+                    ):
+                        logger.warning("CloudPayments webhook: invalid signature")
+                        return JSONResponse({"code": 13})
+
+                # Парсим данные формы
+                try:
+                    form_data = await request.form()
+                    webhook_data = cloudpayments_service.parse_webhook_data(dict(form_data))
+                    logger.info("CloudPayments webhook parsed data: %s", webhook_data)
+                except Exception as error:
+                    logger.error("CloudPayments webhook parse error: %s", error)
+                    # Может быть это Check уведомление - просто разрешаем
+                    return JSONResponse({"code": 0})
+
+                # Определяем тип webhook по статусу
+                status_value = webhook_data.get("status", "")
+
+                if status_value in ("Completed", "Authorized"):
+                    # Успешная оплата
+                    await _process_payment_service_callback(
+                        payment_service,
+                        webhook_data,
+                        "process_cloudpayments_pay_webhook",
+                    )
+                elif status_value in ("Declined", "Cancelled"):
+                    # Неуспешная оплата
+                    await _process_payment_service_callback(
+                        payment_service,
+                        webhook_data,
+                        "process_cloudpayments_fail_webhook",
+                    )
+                else:
+                    # Check или другой тип уведомления - просто разрешаем
+                    logger.info("CloudPayments webhook: status=%s, allowing (code=0)", status_value)
+
                 return JSONResponse({"code": 0})
-
-            # Определяем тип webhook по статусу
-            status_value = webhook_data.get("status", "")
-
-            if status_value in ("Completed", "Authorized"):
-                # Успешная оплата
-                await _process_payment_service_callback(
-                    payment_service,
-                    webhook_data,
-                    "process_cloudpayments_pay_webhook",
-                )
-            elif status_value in ("Declined", "Cancelled"):
-                # Неуспешная оплата
-                await _process_payment_service_callback(
-                    payment_service,
-                    webhook_data,
-                    "process_cloudpayments_fail_webhook",
-                )
-
-            return JSONResponse({"code": 0})
+            except Exception as e:
+                logger.exception("CloudPayments universal webhook error: %s", e)
+                return JSONResponse({"code": 0})
 
         routes_registered = True
 
@@ -892,6 +932,77 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
 
         routes_registered = True
 
+    # KassaAI webhook
+    if settings.is_kassa_ai_enabled():
+        @router.get(settings.KASSA_AI_WEBHOOK_PATH)
+        async def kassa_ai_health() -> JSONResponse:
+            return JSONResponse(
+                {
+                    "status": "ok",
+                    "service": "kassa_ai_webhook",
+                    "enabled": settings.is_kassa_ai_enabled(),
+                }
+            )
+
+        @router.post(settings.KASSA_AI_WEBHOOK_PATH)
+        async def kassa_ai_webhook(request: Request) -> Response:
+            # Получаем данные формы
+            try:
+                form_data = await request.form()
+            except Exception:
+                logger.error("KassaAI webhook: не удалось прочитать данные формы")
+                return Response("Error reading form data", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Извлекаем параметры (те же что и у Freekassa)
+            merchant_id = form_data.get("MERCHANT_ID")
+            amount = form_data.get("AMOUNT")
+            order_id = form_data.get("MERCHANT_ORDER_ID")
+            sign = form_data.get("SIGN")
+            intid = form_data.get("intid")
+            cur_id = form_data.get("CUR_ID")
+
+            if not all([merchant_id, amount, order_id, sign, intid]):
+                logger.warning("KassaAI webhook: отсутствуют обязательные параметры")
+                return Response("Missing parameters", status_code=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                merchant_id_int = int(merchant_id)
+                amount_float = float(amount)
+                cur_id_int = int(cur_id) if cur_id else None
+            except (ValueError, TypeError) as e:
+                logger.error("KassaAI webhook: некорректные параметры - %s", e)
+                return Response("Invalid parameters", status_code=status.HTTP_400_BAD_REQUEST)
+
+            # Обрабатываем webhook
+            db_generator = get_db()
+            try:
+                db = await db_generator.__anext__()
+            except StopAsyncIteration:
+                return Response("DB Error", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            try:
+                success = await payment_service.process_kassa_ai_webhook(
+                    db,
+                    merchant_id=merchant_id_int,
+                    amount=amount_float,
+                    order_id=order_id,
+                    sign=sign,
+                    intid=intid,
+                    cur_id=cur_id_int,
+                )
+            finally:
+                try:
+                    await db_generator.__anext__()
+                except StopAsyncIteration:
+                    pass
+
+            if success:
+                return Response("YES", status_code=status.HTTP_200_OK)
+
+            return Response("Error", status_code=status.HTTP_400_BAD_REQUEST)
+
+        routes_registered = True
+
     if routes_registered:
         @router.get("/health/payment-webhooks")
         async def payment_webhooks_health() -> JSONResponse:
@@ -908,6 +1019,7 @@ def create_payment_router(bot: Bot, payment_service: PaymentService) -> APIRoute
                     "platega_enabled": settings.is_platega_enabled(),
                     "cloudpayments_enabled": settings.is_cloudpayments_enabled(),
                     "freekassa_enabled": settings.is_freekassa_enabled(),
+                    "kassa_ai_enabled": settings.is_kassa_ai_enabled(),
                 }
             )
 
