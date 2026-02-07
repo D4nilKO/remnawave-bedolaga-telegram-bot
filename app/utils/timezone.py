@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from functools import lru_cache
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,23 +31,35 @@ def get_local_timezone() -> ZoneInfo:
             tz_name,
             exc,
         )
-        return ZoneInfo("UTC")
+        return ZoneInfo('UTC')
 
 
-def to_local_datetime(dt: Optional[datetime]) -> Optional[datetime]:
+def panel_datetime_to_naive_utc(dt: datetime) -> datetime:
+    """Convert a panel datetime to naive UTC.
+
+    Panel API returns local time with a misleading UTC offset (+00:00 / Z).
+    This strips the offset, interprets the raw value as panel-local time,
+    then converts to naive UTC for database storage.
+    """
+    naive = dt.replace(tzinfo=None)
+    localized = naive.replace(tzinfo=get_local_timezone())
+    return localized.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+
+
+def to_local_datetime(dt: datetime | None) -> datetime | None:
     """Convert a datetime value to the configured local timezone."""
 
     if dt is None:
         return None
 
-    aware_dt = dt if dt.tzinfo is not None else dt.replace(tzinfo=dt_timezone.utc)
+    aware_dt = dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
     return aware_dt.astimezone(get_local_timezone())
 
 
 def format_local_datetime(
-    dt: Optional[datetime],
-    fmt: str = "%Y-%m-%d %H:%M:%S %Z",
-    na_placeholder: str = "N/A",
+    dt: datetime | None,
+    fmt: str = '%Y-%m-%d %H:%M:%S %Z',
+    na_placeholder: str = 'N/A',
 ) -> str:
     """Format a datetime value in the configured local timezone."""
 
@@ -60,7 +72,7 @@ def format_local_datetime(
 class TimezoneAwareFormatter(logging.Formatter):
     """Logging formatter that renders timestamps in the configured timezone."""
 
-    def __init__(self, *args, timezone_name: Optional[str] = None, **kwargs):
+    def __init__(self, *args, timezone_name: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         if timezone_name:
             try:
@@ -71,12 +83,12 @@ class TimezoneAwareFormatter(logging.Formatter):
                     timezone_name,
                     exc,
                 )
-                self._timezone = ZoneInfo("UTC")
+                self._timezone = ZoneInfo('UTC')
         else:
             self._timezone = get_local_timezone()
 
-    def formatTime(self, record, datefmt=None):  # noqa: N802 - inherited method name
+    def formatTime(self, record, datefmt=None):
         dt = datetime.fromtimestamp(record.created, tz=self._timezone)
         if datefmt:
             return dt.strftime(datefmt)
-        return dt.strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
+        return dt.strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]

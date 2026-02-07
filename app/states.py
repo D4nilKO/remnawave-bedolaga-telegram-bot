@@ -1,10 +1,12 @@
 from aiogram.fsm.state import State, StatesGroup
 
+
 class RegistrationStates(StatesGroup):
     waiting_for_language = State()
     waiting_for_rules_accept = State()
     waiting_for_privacy_policy_accept = State()
     waiting_for_referral_code = State()
+
 
 class SubscriptionStates(StatesGroup):
     selecting_period = State()
@@ -28,6 +30,7 @@ class SubscriptionStates(StatesGroup):
     selecting_custom_traffic = State()
     confirming_custom_purchase = State()
 
+
 class BalanceStates(StatesGroup):
     waiting_for_amount = State()
     waiting_for_pal24_method = State()
@@ -40,8 +43,8 @@ class PromoCodeStates(StatesGroup):
     waiting_for_code = State()
     waiting_for_referral_code = State()
 
+
 class AdminStates(StatesGroup):
-    
     waiting_for_user_search = State()
     waiting_for_bulk_ban_list = State()
     sending_user_message = State()
@@ -112,9 +115,15 @@ class AdminStates(StatesGroup):
     creating_referral_contest_end = State()
     creating_referral_contest_time = State()
     editing_referral_contest_summary_times = State()
+    adding_virtual_participant_name = State()
+    adding_virtual_participant_count = State()
+    editing_virtual_participant_count = State()
+    # Массовое создание виртуальных участников (массовка)
+    adding_mass_virtual_count = State()  # Сколько призраков создать
+    adding_mass_virtual_referrals = State()  # По сколько рефералов у каждого
     editing_daily_contest_field = State()
     editing_daily_contest_value = State()
-    
+
     editing_squad_price = State()
     editing_traffic_price = State()
     editing_device_price = State()
@@ -125,6 +134,10 @@ class AdminStates(StatesGroup):
 
     # Тестовое начисление реферального дохода
     test_referral_earning_input = State()
+
+    # Диагностика рефералов
+    referral_diagnostics_period = State()
+    waiting_for_log_file = State()
 
     editing_rules_page = State()
     editing_privacy_policy = State()
@@ -153,7 +166,7 @@ class AdminStates(StatesGroup):
     editing_welcome_text = State()
     editing_pinned_message = State()
     confirming_pinned_broadcast = State()
-    waiting_for_message_buttons = "waiting_for_message_buttons"
+    waiting_for_message_buttons = 'waiting_for_message_buttons'
 
     editing_promo_offer_message = State()
     editing_promo_offer_button = State()
@@ -164,15 +177,12 @@ class AdminStates(StatesGroup):
     editing_promo_offer_squads = State()
     selecting_promo_offer_user = State()
     searching_promo_offer_user = State()
-    
+
     # Состояния для отслеживания источника перехода
     viewing_user_from_balance_list = State()
-    viewing_user_from_traffic_list = State()
-    viewing_user_from_last_activity_list = State()
-    viewing_user_from_spending_list = State()
-    viewing_user_from_purchases_list = State()
     viewing_user_from_campaign_list = State()
     viewing_user_from_ready_to_renew_list = State()
+    viewing_user_from_potential_customers_list = State()
 
     # Состояния для управления тарифами
     creating_tariff_name = State()
@@ -202,14 +212,17 @@ class AdminStates(StatesGroup):
 class SupportStates(StatesGroup):
     waiting_for_message = State()
 
+
 class TicketStates(StatesGroup):
     waiting_for_title = State()
     waiting_for_message = State()
     waiting_for_reply = State()
 
+
 class AdminTicketStates(StatesGroup):
     waiting_for_reply = State()
     waiting_for_block_duration = State()
+
 
 class SupportSettingsStates(StatesGroup):
     waiting_for_desc = State()
@@ -224,13 +237,16 @@ class BotConfigStates(StatesGroup):
 class PricingStates(StatesGroup):
     waiting_for_value = State()
 
+
 class AutoPayStates(StatesGroup):
     setting_autopay_days = State()
     confirming_autopay_toggle = State()
 
+
 class SquadCreateStates(StatesGroup):
     waiting_for_name = State()
     selecting_inbounds = State()
+
 
 class SquadRenameStates(StatesGroup):
     waiting_for_new_name = State()
@@ -244,6 +260,7 @@ class SquadMigrationStates(StatesGroup):
 
 class RemnaWaveSyncStates(StatesGroup):
     waiting_for_schedule = State()
+
 
 class ContestStates(StatesGroup):
     waiting_for_answer = State()
