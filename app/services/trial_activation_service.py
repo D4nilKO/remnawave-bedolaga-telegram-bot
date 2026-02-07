@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,7 +60,7 @@ def preview_trial_activation_charge(user: User) -> int:
     if price_kopeks <= 0:
         return 0
 
-    balance = int(getattr(user, 'balance_kopeks', 0) or 0)
+    balance = int(getattr(user, "balance_kopeks", 0) or 0)
     if balance < price_kopeks:
         raise TrialPaymentInsufficientFunds(price_kopeks, balance)
 
@@ -70,7 +71,7 @@ async def charge_trial_activation_if_required(
     db: AsyncSession,
     user: User,
     *,
-    description: str | None = None,
+    description: Optional[str] = None,
 ) -> int:
     """Charges the user's balance if paid trial activation is enabled.
 
@@ -82,7 +83,7 @@ async def charge_trial_activation_if_required(
     if price_kopeks <= 0:
         return 0
 
-    charge_description = description or 'Активация триальной подписки'
+    charge_description = description or "Активация триальной подписки"
 
     success = await subtract_user_balance(
         db,
@@ -91,7 +92,7 @@ async def charge_trial_activation_if_required(
         charge_description,
     )
     if not success:
-        raise TrialPaymentChargeFailed
+        raise TrialPaymentChargeFailed()
 
     # subtract_user_balance обновляет пользователя, но на всякий случай приводим к int
     return int(price_kopeks)
@@ -102,14 +103,14 @@ async def refund_trial_activation_charge(
     user: User,
     amount_kopeks: int,
     *,
-    description: str | None = None,
+    description: Optional[str] = None,
 ) -> bool:
     """Refunds a previously charged trial activation amount back to the user."""
 
     if amount_kopeks <= 0:
         return True
 
-    refund_description = description or 'Возврат оплаты за активацию триальной подписки'
+    refund_description = description or "Возврат оплаты за активацию триальной подписки"
 
     success = await add_user_balance(
         db,
@@ -121,9 +122,9 @@ async def refund_trial_activation_charge(
 
     if not success:
         logger.error(
-            'Failed to refund %s kopeks for user %s during trial activation rollback',
+            "Failed to refund %s kopeks for user %s during trial activation rollback",
             amount_kopeks,
-            getattr(user, 'id', '<unknown>'),
+            getattr(user, "id", "<unknown>"),
         )
 
     return success
@@ -131,7 +132,7 @@ async def refund_trial_activation_charge(
 
 async def rollback_trial_subscription_activation(
     db: AsyncSession,
-    subscription: Subscription | None,
+    subscription: Optional[Subscription],
 ) -> bool:
     """Attempts to undo a previously created trial subscription.
 
@@ -147,7 +148,7 @@ async def rollback_trial_subscription_activation(
         await decrement_subscription_server_counts(db, subscription)
     except Exception as error:  # pragma: no cover - defensive logging
         logger.error(
-            'Failed to decrement server counters during trial rollback for %s: %s',
+            "Failed to decrement server counters during trial rollback for %s: %s",
             subscription.user_id,
             error,
         )
@@ -157,8 +158,8 @@ async def rollback_trial_subscription_activation(
         await db.commit()
     except Exception as error:  # pragma: no cover - defensive logging
         logger.error(
-            'Failed to remove trial subscription %s after charge failure: %s',
-            getattr(subscription, 'id', '<unknown>'),
+            "Failed to remove trial subscription %s after charge failure: %s",
+            getattr(subscription, "id", "<unknown>"),
             error,
         )
         await db.rollback()
@@ -170,10 +171,10 @@ async def rollback_trial_subscription_activation(
 async def revert_trial_activation(
     db: AsyncSession,
     user: User,
-    subscription: Subscription | None,
+    subscription: Optional[Subscription],
     charged_amount: int,
     *,
-    refund_description: str | None = None,
+    refund_description: Optional[str] = None,
 ) -> TrialActivationReversionResult:
     """Rolls back a trial subscription and refunds any charged amount."""
 
@@ -189,8 +190,8 @@ async def revert_trial_activation(
         await db.refresh(user)
     except Exception as error:  # pragma: no cover - defensive logging
         logger.warning(
-            'Failed to refresh user %s after reverting trial activation: %s',
-            getattr(user, 'id', '<unknown>'),
+            "Failed to refresh user %s after reverting trial activation: %s",
+            getattr(user, "id", "<unknown>"),
             error,
         )
 

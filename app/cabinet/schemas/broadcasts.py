@@ -1,31 +1,23 @@
 """Pydantic schemas for cabinet broadcasts."""
 
 from datetime import datetime
-from typing import Literal
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
-# ============ Channel Types ============
-
-BroadcastChannel = Literal['telegram', 'email', 'both']
-
-
 # ============ Filters ============
-
 
 class BroadcastFilter(BaseModel):
     """Single broadcast filter."""
-
     key: str
     label: str
-    count: int | None = None
-    group: str | None = None  # basic, subscription, traffic, registration, source, activity
+    count: Optional[int] = None
+    group: Optional[str] = None  # basic, subscription, traffic, registration, source, activity
 
 
 class TariffFilter(BaseModel):
     """Tariff-based filter."""
-
     key: str  # tariff_1, tariff_2, ...
     label: str  # tariff name
     tariff_id: int
@@ -34,18 +26,15 @@ class TariffFilter(BaseModel):
 
 class BroadcastFiltersResponse(BaseModel):
     """Response with all available filters."""
-
-    filters: list[BroadcastFilter]  # basic filters
-    tariff_filters: list[TariffFilter]  # tariff filters
-    custom_filters: list[BroadcastFilter]  # custom filters
+    filters: List[BroadcastFilter]  # basic filters
+    tariff_filters: List[TariffFilter]  # tariff filters
+    custom_filters: List[BroadcastFilter]  # custom filters
 
 
 # ============ Tariffs ============
 
-
 class TariffForBroadcast(BaseModel):
     """Tariff info for broadcast filtering."""
-
     id: int
     name: str
     filter_key: str  # tariff_{id}
@@ -54,16 +43,13 @@ class TariffForBroadcast(BaseModel):
 
 class BroadcastTariffsResponse(BaseModel):
     """Response with tariffs for filtering."""
-
-    tariffs: list[TariffForBroadcast]
+    tariffs: List[TariffForBroadcast]
 
 
 # ============ Buttons ============
 
-
 class BroadcastButton(BaseModel):
     """Single broadcast button."""
-
     key: str
     label: str
     default: bool = False
@@ -71,60 +57,48 @@ class BroadcastButton(BaseModel):
 
 class BroadcastButtonsResponse(BaseModel):
     """Response with available buttons."""
-
-    buttons: list[BroadcastButton]
+    buttons: List[BroadcastButton]
 
 
 # ============ Media ============
 
-
 class BroadcastMediaRequest(BaseModel):
     """Media attachment for broadcast."""
-
-    type: str = Field(..., pattern=r'^(photo|video|document)$')
+    type: str = Field(..., pattern=r"^(photo|video|document)$")
     file_id: str
-    caption: str | None = None
+    caption: Optional[str] = None
 
 
 # ============ Create ============
 
-
 class BroadcastCreateRequest(BaseModel):
     """Request to create a broadcast."""
-
     target: str
     message_text: str = Field(..., min_length=1, max_length=4000)
-    selected_buttons: list[str] = Field(default_factory=lambda: ['home'])
-    media: BroadcastMediaRequest | None = None
+    selected_buttons: List[str] = Field(default_factory=lambda: ["home"])
+    media: Optional[BroadcastMediaRequest] = None
 
 
 # ============ Response ============
 
-
 class BroadcastResponse(BaseModel):
     """Broadcast response."""
-
     id: int
     target_type: str
-    message_text: str | None = None
+    message_text: str
     has_media: bool
-    media_type: str | None = None
-    media_file_id: str | None = None
-    media_caption: str | None = None
+    media_type: Optional[str] = None
+    media_file_id: Optional[str] = None
+    media_caption: Optional[str] = None
     total_count: int
     sent_count: int
     failed_count: int
     status: str  # queued|in_progress|completed|partial|failed|cancelled|cancelling
-    admin_id: int | None = None
-    admin_name: str | None = None
+    admin_id: Optional[int] = None
+    admin_name: Optional[str] = None
     created_at: datetime
-    completed_at: datetime | None = None
+    completed_at: Optional[datetime] = None
     progress_percent: float = 0.0
-
-    # Email/channel fields
-    channel: str = 'telegram'  # telegram|email|both
-    email_subject: str | None = None
-    email_html_content: str | None = None
 
     class Config:
         from_attributes = True
@@ -132,8 +106,7 @@ class BroadcastResponse(BaseModel):
 
 class BroadcastListResponse(BaseModel):
     """Paginated list of broadcasts."""
-
-    items: list[BroadcastResponse]
+    items: List[BroadcastResponse]
     total: int
     limit: int
     offset: int
@@ -141,69 +114,12 @@ class BroadcastListResponse(BaseModel):
 
 # ============ Preview ============
 
-
 class BroadcastPreviewRequest(BaseModel):
     """Request to preview broadcast recipients count."""
-
     target: str
 
 
 class BroadcastPreviewResponse(BaseModel):
     """Preview response with recipients count."""
-
-    target: str
-    count: int
-
-
-# ============ Email Filters ============
-
-
-class EmailFilterItem(BaseModel):
-    """Single email filter with count."""
-
-    key: str
-    label: str
-    count: int
-    group: str | None = None
-
-
-class EmailFiltersResponse(BaseModel):
-    """Response with all email filters and their counts."""
-
-    filters: list[EmailFilterItem]
-    total_with_email: int
-
-
-# ============ Combined Broadcast ============
-
-
-class CombinedBroadcastCreateRequest(BaseModel):
-    """Request to create a combined (telegram/email/both) broadcast."""
-
-    channel: BroadcastChannel
-    target: str
-
-    # Telegram-specific fields
-    message_text: str | None = Field(default=None, max_length=4000)
-    selected_buttons: list[str] = Field(default_factory=lambda: ['home'])
-    media: BroadcastMediaRequest | None = None
-
-    # Email-specific fields
-    email_subject: str | None = Field(default=None, max_length=255)
-    email_html_content: str | None = Field(default=None, max_length=100000)
-
-
-# ============ Email Preview ============
-
-
-class EmailPreviewRequest(BaseModel):
-    """Request to preview email broadcast recipients."""
-
-    target: str
-
-
-class EmailPreviewResponse(BaseModel):
-    """Preview response for email broadcast."""
-
     target: str
     count: int

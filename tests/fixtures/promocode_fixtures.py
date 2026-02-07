@@ -1,12 +1,10 @@
 """
 Fixtures for promocode and promo group testing
 """
-
-from datetime import datetime, timedelta
+import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
-
-import pytest
+from datetime import datetime, timedelta
 
 from app.database.models import PromoCodeType
 
@@ -16,7 +14,7 @@ def sample_promo_group():
     """Sample PromoGroup object for testing"""
     return SimpleNamespace(
         id=1,
-        name='Test VIP Group',
+        name="Test VIP Group",
         priority=50,
         server_discount_percent=20,
         traffic_discount_percent=15,
@@ -25,7 +23,7 @@ def sample_promo_group():
         is_default=False,
         auto_assign_total_spent_kopeks=None,
         auto_assign_enabled=False,
-        addon_discount_enabled=True,
+        addon_discount_enabled=True
     )
 
 
@@ -35,12 +33,12 @@ def sample_user():
     return SimpleNamespace(
         id=1,
         telegram_id=123456789,
-        username='testuser',
-        full_name='Test User',
+        username="testuser",
+        full_name="Test User",
         balance_kopeks=0,
-        language='ru',
+        language="ru",
         has_had_paid_subscription=False,
-        total_spent_kopeks=0,
+        total_spent_kopeks=0
     )
 
 
@@ -49,7 +47,7 @@ def sample_promocode_balance():
     """Balance type promocode"""
     return SimpleNamespace(
         id=1,
-        code='BALANCE100',
+        code="BALANCE100",
         type=PromoCodeType.BALANCE.value,
         balance_bonus_kopeks=10000,  # 100 rubles
         subscription_days=0,
@@ -61,7 +59,7 @@ def sample_promocode_balance():
         valid_until=None,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
-        created_by=1,
+        created_by=1
     )
 
 
@@ -70,7 +68,7 @@ def sample_promocode_subscription():
     """Subscription days type promocode"""
     return SimpleNamespace(
         id=2,
-        code='SUB30',
+        code="SUB30",
         type=PromoCodeType.SUBSCRIPTION_DAYS.value,
         balance_bonus_kopeks=0,
         subscription_days=30,
@@ -82,7 +80,7 @@ def sample_promocode_subscription():
         valid_until=datetime.utcnow() + timedelta(days=60),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
-        created_by=1,
+        created_by=1
     )
 
 
@@ -91,7 +89,7 @@ def sample_promocode_promo_group(sample_promo_group):
     """Promo group type promocode"""
     return SimpleNamespace(
         id=3,
-        code='VIPGROUP',
+        code="VIPGROUP",
         type=PromoCodeType.PROMO_GROUP.value,
         balance_bonus_kopeks=0,
         subscription_days=0,
@@ -103,7 +101,7 @@ def sample_promocode_promo_group(sample_promo_group):
         valid_until=None,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
-        created_by=1,
+        created_by=1
     )
 
 
@@ -112,7 +110,7 @@ def sample_promocode_invalid():
     """Invalid/expired promocode"""
     return SimpleNamespace(
         id=4,
-        code='EXPIRED',
+        code="EXPIRED",
         type=PromoCodeType.BALANCE.value,
         balance_bonus_kopeks=5000,
         subscription_days=0,
@@ -124,7 +122,7 @@ def sample_promocode_invalid():
         valid_until=datetime.utcnow() - timedelta(days=1),  # Expired
         created_at=datetime.utcnow() - timedelta(days=30),
         updated_at=datetime.utcnow(),
-        created_by=1,
+        created_by=1
     )
 
 

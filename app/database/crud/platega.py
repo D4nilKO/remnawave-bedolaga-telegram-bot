@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PlategaPayment
-
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +20,17 @@ async def create_platega_payment(
     user_id: int,
     amount_kopeks: int,
     currency: str,
-    description: str | None,
+    description: Optional[str],
     status: str,
     payment_method_code: int,
     correlation_id: str,
-    platega_transaction_id: str | None,
-    redirect_url: str | None,
-    return_url: str | None,
-    failed_url: str | None,
-    payload: str | None,
-    metadata: dict[str, Any] | None = None,
-    expires_at: datetime | None = None,
+    platega_transaction_id: Optional[str],
+    redirect_url: Optional[str],
+    return_url: Optional[str],
+    failed_url: Optional[str],
+    payload: Optional[str],
+    metadata: Optional[dict[str, Any]] = None,
+    expires_at: Optional[datetime] = None,
 ) -> PlategaPayment:
     payment = PlategaPayment(
         user_id=user_id,
@@ -55,7 +54,7 @@ async def create_platega_payment(
     await db.refresh(payment)
 
     logger.info(
-        'Создан Platega платеж #%s (tx=%s) на сумму %s копеек для пользователя %s',
+        "Создан Platega платеж #%s (tx=%s) на сумму %s копеек для пользователя %s",
         payment.id,
         platega_transaction_id,
         amount_kopeks,
@@ -65,23 +64,45 @@ async def create_platega_payment(
     return payment
 
 
-async def get_platega_payment_by_id(db: AsyncSession, payment_id: int) -> PlategaPayment | None:
-    result = await db.execute(select(PlategaPayment).where(PlategaPayment.id == payment_id))
+async def get_platega_payment_by_id(
+    db: AsyncSession, payment_id: int
+) -> Optional[PlategaPayment]:
+    result = await db.execute(
+        select(PlategaPayment).where(PlategaPayment.id == payment_id)
+    )
     return result.scalar_one_or_none()
 
 
-async def get_platega_payment_by_id_for_update(db: AsyncSession, payment_id: int) -> PlategaPayment | None:
-    result = await db.execute(select(PlategaPayment).where(PlategaPayment.id == payment_id).with_for_update())
+async def get_platega_payment_by_id_for_update(
+    db: AsyncSession, payment_id: int
+) -> Optional[PlategaPayment]:
+    result = await db.execute(
+        select(PlategaPayment)
+        .where(PlategaPayment.id == payment_id)
+        .with_for_update()
+    )
     return result.scalar_one_or_none()
 
 
-async def get_platega_payment_by_transaction_id(db: AsyncSession, transaction_id: str) -> PlategaPayment | None:
-    result = await db.execute(select(PlategaPayment).where(PlategaPayment.platega_transaction_id == transaction_id))
+async def get_platega_payment_by_transaction_id(
+    db: AsyncSession, transaction_id: str
+) -> Optional[PlategaPayment]:
+    result = await db.execute(
+        select(PlategaPayment).where(
+            PlategaPayment.platega_transaction_id == transaction_id
+        )
+    )
     return result.scalar_one_or_none()
 
 
-async def get_platega_payment_by_correlation_id(db: AsyncSession, correlation_id: str) -> PlategaPayment | None:
-    result = await db.execute(select(PlategaPayment).where(PlategaPayment.correlation_id == correlation_id))
+async def get_platega_payment_by_correlation_id(
+    db: AsyncSession, correlation_id: str
+) -> Optional[PlategaPayment]:
+    result = await db.execute(
+        select(PlategaPayment).where(
+            PlategaPayment.correlation_id == correlation_id
+        )
+    )
     return result.scalar_one_or_none()
 
 
@@ -89,14 +110,14 @@ async def update_platega_payment(
     db: AsyncSession,
     *,
     payment: PlategaPayment,
-    status: str | None = None,
-    is_paid: bool | None = None,
-    paid_at: datetime | None = None,
-    platega_transaction_id: str | None = None,
-    redirect_url: str | None = None,
-    callback_payload: dict[str, Any] | None = None,
-    metadata: dict[str, Any] | None = None,
-    expires_at: datetime | None = None,
+    status: Optional[str] = None,
+    is_paid: Optional[bool] = None,
+    paid_at: Optional[datetime] = None,
+    platega_transaction_id: Optional[str] = None,
+    redirect_url: Optional[str] = None,
+    callback_payload: Optional[dict[str, Any]] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    expires_at: Optional[datetime] = None,
 ) -> PlategaPayment:
     if status is not None:
         payment.status = status

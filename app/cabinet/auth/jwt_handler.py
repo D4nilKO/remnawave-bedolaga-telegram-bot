@@ -1,23 +1,21 @@
 """JWT token handling for cabinet authentication."""
 
-from datetime import datetime, timedelta
-from typing import Any
-
 import jwt
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 
 from app.config import settings
 
+JWT_ALGORITHM = "HS256"
 
-JWT_ALGORITHM = 'HS256'
 
-
-def create_access_token(user_id: int, telegram_id: int | None = None) -> str:
+def create_access_token(user_id: int, telegram_id: int) -> str:
     """
     Create a short-lived access token.
 
     Args:
         user_id: Database user ID
-        telegram_id: Telegram user ID (optional for email-only users)
+        telegram_id: Telegram user ID
 
     Returns:
         Encoded JWT access token
@@ -26,15 +24,12 @@ def create_access_token(user_id: int, telegram_id: int | None = None) -> str:
     expires = datetime.utcnow() + timedelta(minutes=expire_minutes)
 
     payload = {
-        'sub': str(user_id),
-        'type': 'access',
-        'exp': expires,
-        'iat': datetime.utcnow(),
+        "sub": str(user_id),
+        "telegram_id": telegram_id,
+        "type": "access",
+        "exp": expires,
+        "iat": datetime.utcnow(),
     }
-
-    # Добавляем telegram_id только если он есть
-    if telegram_id is not None:
-        payload['telegram_id'] = telegram_id
 
     secret = settings.get_cabinet_jwt_secret()
     return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
@@ -54,17 +49,17 @@ def create_refresh_token(user_id: int) -> str:
     expires = datetime.utcnow() + timedelta(days=expire_days)
 
     payload = {
-        'sub': str(user_id),
-        'type': 'refresh',
-        'exp': expires,
-        'iat': datetime.utcnow(),
+        "sub": str(user_id),
+        "type": "refresh",
+        "exp": expires,
+        "iat": datetime.utcnow(),
     }
 
     secret = settings.get_cabinet_jwt_secret()
     return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
 
 
-def decode_token(token: str) -> dict[str, Any] | None:
+def decode_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Decode and validate a JWT token.
 
@@ -83,7 +78,7 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return None
 
 
-def get_token_payload(token: str, expected_type: str = 'access') -> dict[str, Any] | None:
+def get_token_payload(token: str, expected_type: str = "access") -> Optional[Dict[str, Any]]:
     """
     Decode token and verify its type.
 
@@ -99,7 +94,7 @@ def get_token_payload(token: str, expected_type: str = 'access') -> dict[str, An
     if not payload:
         return None
 
-    if payload.get('type') != expected_type:
+    if payload.get("type") != expected_type:
         return None
 
     return payload

@@ -1,102 +1,39 @@
 # Игнорируем все файлы и папки по умолчанию
 *
+docker-compose.override.yml
 
-# ========== WHITELIST: разрешённые файлы ==========
-
-# Конфигурация проекта
+# Исключения: разрешаем только нужные файлы
 !.dockerignore
 !.env.example
-!.gitignore
-!.python-version
-!Dockerfile
-!docker-compose.yml
-!docker-compose.local.yml
-!Makefile
-!pyproject.toml
-!uv.lock
-!requirements.txt
-!alembic.ini
-!app-config.json
-!release-please-config.json
-!.release-please-manifest.json
-
-# Документация
-!README.md
-!LICENSE
-!CONTRIBUTING.md
-!SECURITY.md
-
-# Скрипты
 !install_bot.sh
+!Dockerfile
+!app-config.json
 !main.py
+!requirements.txt
+!docs/
+!docs/**
+!migrations/
+!migrations/**
 
-# Статические файлы
-!vpn_logo.png
-
-# ========== WHITELIST: разрешённые папки ==========
-
+# Разрешаем папку app/ и все её содержимое рекурсивно
 !app/
 !app/**
 !tests/
 !tests/**
-!migrations/
-!migrations/**
-!docs/
-!docs/**
-!assets/
-!assets/**
-!locales/
-!locales/**
-!.github/
-!.github/**
 
-# ========== BLACKLIST: игнорируемые внутри папок ==========
+# Дополнительно разрешаем README и лицензию (опционально)
+!README.md
+!LICENSE
 
-# Python
-__pycache__/
-**/__pycache__/
-*.py[cod]
-*$py.class
-*.so
+# Разрешаем .gitignore чтобы он попал в репозиторий
+!.gitignore
 
-# Virtual environments
-.venv/
-venv/
-ENV/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# Build/dist
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# Testing/coverage
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# Local overrides (не коммитить!)
-docker-compose.override.yml
-.env
-.env.local
-.env.*.local
-
-# Runtime data
-logs/
-data/
-*.log
-*.db
-*.sqlite3
-
-# OS files
-.DS_Store
-Thumbs.db
+# Внутри разрешенных папок игнорируем служебные файлы
+app/__pycache__/
+app/**/__pycache__/
+app/**/*.pyc
+app/**/*.pyo
+app/**/*.pyd
+*.pyc
+*.pyo
+*.pyd

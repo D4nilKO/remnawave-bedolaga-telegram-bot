@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import MenuLayoutHistory
@@ -18,16 +19,16 @@ class MenuLayoutHistoryService:
     async def save_history(
         cls,
         db: AsyncSession,
-        config: dict[str, Any],
+        config: Dict[str, Any],
         action: str,
-        changes_summary: str | None = None,
-        user_info: str | None = None,
+        changes_summary: Optional[str] = None,
+        user_info: Optional[str] = None,
     ) -> MenuLayoutHistory:
         """Сохранить запись в историю изменений."""
         history = MenuLayoutHistory(
             config_json=json.dumps(config, ensure_ascii=False),
             action=action,
-            changes_summary=changes_summary or f'Action: {action}',
+            changes_summary=changes_summary or f"Action: {action}",
             user_info=user_info,
         )
         db.add(history)
@@ -41,20 +42,23 @@ class MenuLayoutHistoryService:
         db: AsyncSession,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:
         """Получить историю изменений."""
         result = await db.execute(
-            select(MenuLayoutHistory).order_by(desc(MenuLayoutHistory.created_at)).limit(limit).offset(offset)
+            select(MenuLayoutHistory)
+            .order_by(desc(MenuLayoutHistory.created_at))
+            .limit(limit)
+            .offset(offset)
         )
         entries = result.scalars().all()
 
         return [
             {
-                'id': entry.id,
-                'action': entry.action,
-                'changes_summary': entry.changes_summary,
-                'user_info': entry.user_info,
-                'created_at': entry.created_at,
+                "id": entry.id,
+                "action": entry.action,
+                "changes_summary": entry.changes_summary,
+                "user_info": entry.user_info,
+                "created_at": entry.created_at,
             }
             for entry in entries
         ]
@@ -62,7 +66,9 @@ class MenuLayoutHistoryService:
     @classmethod
     async def get_history_count(cls, db: AsyncSession) -> int:
         """Получить общее количество записей истории."""
-        result = await db.execute(select(func.count(MenuLayoutHistory.id)))
+        result = await db.execute(
+            select(func.count(MenuLayoutHistory.id))
+        )
         return result.scalar() or 0
 
     @classmethod
@@ -70,21 +76,23 @@ class MenuLayoutHistoryService:
         cls,
         db: AsyncSession,
         history_id: int,
-    ) -> dict[str, Any] | None:
+    ) -> Optional[Dict[str, Any]]:
         """Получить конкретную запись истории с конфигурацией."""
-        result = await db.execute(select(MenuLayoutHistory).where(MenuLayoutHistory.id == history_id))
+        result = await db.execute(
+            select(MenuLayoutHistory).where(MenuLayoutHistory.id == history_id)
+        )
         entry = result.scalar_one_or_none()
 
         if not entry:
             return None
 
         return {
-            'id': entry.id,
-            'action': entry.action,
-            'changes_summary': entry.changes_summary,
-            'user_info': entry.user_info,
-            'created_at': entry.created_at,
-            'config': json.loads(entry.config_json),
+            "id": entry.id,
+            "action": entry.action,
+            "changes_summary": entry.changes_summary,
+            "user_info": entry.user_info,
+            "created_at": entry.created_at,
+            "config": json.loads(entry.config_json),
         }
 
     @classmethod
@@ -94,8 +102,8 @@ class MenuLayoutHistoryService:
         history_id: int,
         get_config_func,
         save_config_func,
-        user_info: str | None = None,
-    ) -> dict[str, Any]:
+        user_info: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Откатить конфигурацию к записи из истории.
 
@@ -108,20 +116,26 @@ class MenuLayoutHistoryService:
         """
         entry = await cls.get_history_entry(db, history_id)
         if not entry:
-            raise KeyError(f'History entry {history_id} not found')
+            raise KeyError(f"History entry {history_id} not found")
 
-        config = entry['config']
+        config = entry["config"]
 
         # Сохраняем текущую конфигурацию в историю перед откатом
         current_config = await get_config_func(db)
         await cls.save_history(
-            db, current_config, 'rollback_backup', f'Backup before rollback to history #{history_id}', user_info
+            db, current_config, "rollback_backup",
+            f"Backup before rollback to history #{history_id}",
+            user_info
         )
 
         # Применяем конфигурацию из истории
         await save_config_func(db, config)
 
         # Сохраняем запись об откате
-        await cls.save_history(db, config, 'rollback', f'Rollback to history #{history_id}', user_info)
+        await cls.save_history(
+            db, config, "rollback",
+            f"Rollback to history #{history_id}",
+            user_info
+        )
 
         return config

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -26,75 +27,74 @@ class SubscriptionSummary(BaseModel):
     device_limit: int
     modem_enabled: bool = False
     autopay_enabled: bool
-    autopay_days_before: int | None = None
-    subscription_url: str | None = None
-    subscription_crypto_link: str | None = None
-    connected_squads: list[str] = Field(default_factory=list)
+    autopay_days_before: Optional[int] = None
+    subscription_url: Optional[str] = None
+    subscription_crypto_link: Optional[str] = None
+    connected_squads: List[str] = Field(default_factory=list)
 
 
 class UserResponse(BaseModel):
     id: int
-    telegram_id: int | None = None
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     status: str
     language: str
     balance_kopeks: int
     balance_rubles: float
-    referral_code: str | None = None
-    referred_by_id: int | None = None
+    referral_code: Optional[str] = None
+    referred_by_id: Optional[int] = None
     has_had_paid_subscription: bool
     has_made_first_topup: bool
     created_at: datetime
     updated_at: datetime
-    last_activity: datetime | None = None
-    promo_group: PromoGroupSummary | None = None
-    subscription: SubscriptionSummary | None = None
+    last_activity: Optional[datetime] = None
+    promo_group: Optional[PromoGroupSummary] = None
+    subscription: Optional[SubscriptionSummary] = None
 
 
 class UserListResponse(BaseModel):
-    items: list[UserResponse]
+    items: List[UserResponse]
     total: int
     limit: int
     offset: int
 
 
 class UserCreateRequest(BaseModel):
-    telegram_id: int | None = None
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
-    language: str = 'ru'
-    referred_by_id: int | None = None
-    promo_group_id: int | None = None
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    language: str = "ru"
+    referred_by_id: Optional[int] = None
+    promo_group_id: Optional[int] = None
 
 
 class UserUpdateRequest(BaseModel):
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
-    language: str | None = None
-    status: str | None = None
-    promo_group_id: int | None = None
-    referral_code: str | None = None
-    has_had_paid_subscription: bool | None = None
-    has_made_first_topup: bool | None = None
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    language: Optional[str] = None
+    status: Optional[str] = None
+    promo_group_id: Optional[int] = None
+    referral_code: Optional[str] = None
+    has_had_paid_subscription: Optional[bool] = None
+    has_made_first_topup: Optional[bool] = None
 
 
 class BalanceUpdateRequest(BaseModel):
     amount_kopeks: int
-    description: str | None = Field(default='Корректировка через веб-API')
+    description: Optional[str] = Field(default="Корректировка через веб-API")
     create_transaction: bool = True
 
 
 class UserSubscriptionCreateRequest(BaseModel):
     """Схема для создания подписки через users API (user_id берется из URL)"""
-
     is_trial: bool = False
-    duration_days: int | None = None
-    traffic_limit_gb: int | None = None
-    device_limit: int | None = None
-    squad_uuid: str | None = None
-    connected_squads: list[str] | None = None
+    duration_days: Optional[int] = None
+    traffic_limit_gb: Optional[int] = None
+    device_limit: Optional[int] = None
+    squad_uuid: Optional[str] = None
+    connected_squads: Optional[List[str]] = None
     replace_existing: bool = False

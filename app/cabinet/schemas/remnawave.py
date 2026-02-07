@@ -1,38 +1,33 @@
 """Schemas for RemnaWave management in cabinet admin panel."""
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import datetime, time
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
 # ============ Status & Connection ============
 
-
 class ConnectionStatus(BaseModel):
     """RemnaWave API connection status."""
-
     status: str
     message: str
-    api_url: str | None = None
-    status_code: int | None = None
-    system_info: dict[str, Any] | None = None
+    api_url: Optional[str] = None
+    status_code: Optional[int] = None
+    system_info: Optional[Dict[str, Any]] = None
 
 
 class RemnaWaveStatusResponse(BaseModel):
     """RemnaWave configuration and connection status."""
-
     is_configured: bool
-    configuration_error: str | None = None
-    connection: ConnectionStatus | None = None
+    configuration_error: Optional[str] = None
+    connection: Optional[ConnectionStatus] = None
 
 
 # ============ System Statistics ============
 
-
 class SystemSummary(BaseModel):
     """System summary statistics."""
-
     users_online: int
     total_users: int
     active_connections: int
@@ -45,7 +40,6 @@ class SystemSummary(BaseModel):
 
 class ServerInfo(BaseModel):
     """Server hardware info."""
-
     cpu_cores: int
     cpu_physical_cores: int
     memory_total: int
@@ -57,7 +51,6 @@ class ServerInfo(BaseModel):
 
 class Bandwidth(BaseModel):
     """Realtime bandwidth statistics."""
-
     realtime_download: int
     realtime_upload: int
     realtime_total: int
@@ -65,15 +58,13 @@ class Bandwidth(BaseModel):
 
 class TrafficPeriod(BaseModel):
     """Traffic statistics for a period."""
-
     current: int
     previous: int
-    difference: str | None = None
+    difference: Optional[str] = None
 
 
 class TrafficPeriods(BaseModel):
     """Traffic statistics for multiple periods."""
-
     last_2_days: TrafficPeriod
     last_7_days: TrafficPeriod
     last_30_days: TrafficPeriod
@@ -83,212 +74,190 @@ class TrafficPeriods(BaseModel):
 
 class SystemStatsResponse(BaseModel):
     """Full system statistics response."""
-
     system: SystemSummary
-    users_by_status: dict[str, int]
+    users_by_status: Dict[str, int]
     server_info: ServerInfo
     bandwidth: Bandwidth
     traffic_periods: TrafficPeriods
-    nodes_realtime: list[dict[str, Any]] = Field(default_factory=list)
-    nodes_weekly: list[dict[str, Any]] = Field(default_factory=list)
-    last_updated: datetime | None = None
+    nodes_realtime: List[Dict[str, Any]] = Field(default_factory=list)
+    nodes_weekly: List[Dict[str, Any]] = Field(default_factory=list)
+    last_updated: Optional[datetime] = None
 
 
 # ============ Nodes ============
 
-
 class NodeInfo(BaseModel):
     """Node information."""
-
     uuid: str
     name: str
     address: str
-    country_code: str | None = None
+    country_code: Optional[str] = None
     is_connected: bool
     is_disabled: bool
     is_node_online: bool
     is_xray_running: bool
-    users_online: int | None = None
-    traffic_used_bytes: int | None = None
-    traffic_limit_bytes: int | None = None
-    last_status_change: datetime | None = None
-    last_status_message: str | None = None
-    xray_uptime: str | None = None
+    users_online: Optional[int] = None
+    traffic_used_bytes: Optional[int] = None
+    traffic_limit_bytes: Optional[int] = None
+    last_status_change: Optional[datetime] = None
+    last_status_message: Optional[str] = None
+    xray_uptime: Optional[str] = None
     is_traffic_tracking_active: bool = False
-    traffic_reset_day: int | None = None
-    notify_percent: int | None = None
+    traffic_reset_day: Optional[int] = None
+    notify_percent: Optional[int] = None
     consumption_multiplier: float = 1.0
-    cpu_count: int | None = None
-    cpu_model: str | None = None
-    total_ram: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-    provider_uuid: str | None = None
+    cpu_count: Optional[int] = None
+    cpu_model: Optional[str] = None
+    total_ram: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    provider_uuid: Optional[str] = None
 
 
 class NodesListResponse(BaseModel):
     """List of nodes response."""
-
-    items: list[NodeInfo]
+    items: List[NodeInfo]
     total: int
 
 
 class NodesOverview(BaseModel):
     """Nodes overview statistics."""
-
     total: int
     online: int
     offline: int
     disabled: int
     total_users_online: int
-    nodes: list[NodeInfo]
+    nodes: List[NodeInfo]
 
 
 class NodeStatisticsResponse(BaseModel):
     """Node statistics with usage history."""
-
     node: NodeInfo
-    realtime: dict[str, Any] | None = None
-    usage_history: list[dict[str, Any]] = Field(default_factory=list)
-    last_updated: datetime | None = None
+    realtime: Optional[Dict[str, Any]] = None
+    usage_history: List[Dict[str, Any]] = Field(default_factory=list)
+    last_updated: Optional[datetime] = None
 
 
 class NodeUsageResponse(BaseModel):
     """Node usage history response."""
-
-    items: list[dict[str, Any]] = Field(default_factory=list)
+    items: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class NodeActionRequest(BaseModel):
     """Request to perform node action."""
-
-    action: Literal['enable', 'disable', 'restart']
+    action: Literal["enable", "disable", "restart"]
 
 
 class NodeActionResponse(BaseModel):
     """Response after node action."""
-
     success: bool
-    message: str | None = None
-    is_disabled: bool | None = None
+    message: Optional[str] = None
+    is_disabled: Optional[bool] = None
 
 
 # ============ Squads (Internal Squads) ============
 
-
 class SquadInfo(BaseModel):
     """Internal Squad information from RemnaWave."""
-
     uuid: str
     name: str
     members_count: int
     inbounds_count: int
-    inbounds: list[dict[str, Any]] = Field(default_factory=list)
+    inbounds: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class SquadWithLocalInfo(BaseModel):
     """Squad with local database info."""
-
     uuid: str
     name: str
     members_count: int
     inbounds_count: int
-    inbounds: list[dict[str, Any]] = Field(default_factory=list)
+    inbounds: List[Dict[str, Any]] = Field(default_factory=list)
     # Local DB info
-    local_id: int | None = None
-    display_name: str | None = None
-    country_code: str | None = None
-    is_available: bool | None = None
-    is_trial_eligible: bool | None = None
-    price_kopeks: int | None = None
-    max_users: int | None = None
-    current_users: int | None = None
+    local_id: Optional[int] = None
+    display_name: Optional[str] = None
+    country_code: Optional[str] = None
+    is_available: Optional[bool] = None
+    is_trial_eligible: Optional[bool] = None
+    price_kopeks: Optional[int] = None
+    max_users: Optional[int] = None
+    current_users: Optional[int] = None
     is_synced: bool = False
 
 
 class SquadsListResponse(BaseModel):
     """List of squads response."""
-
-    items: list[SquadWithLocalInfo]
+    items: List[SquadWithLocalInfo]
     total: int
 
 
 class SquadDetailResponse(BaseModel):
     """Detailed squad response."""
-
     uuid: str
     name: str
     members_count: int
     inbounds_count: int
-    inbounds: list[dict[str, Any]] = Field(default_factory=list)
+    inbounds: List[Dict[str, Any]] = Field(default_factory=list)
     # Local DB info if synced
-    local_id: int | None = None
-    display_name: str | None = None
-    country_code: str | None = None
-    description: str | None = None
-    is_available: bool | None = None
-    is_trial_eligible: bool | None = None
-    price_kopeks: int | None = None
-    max_users: int | None = None
-    current_users: int | None = None
-    sort_order: int | None = None
+    local_id: Optional[int] = None
+    display_name: Optional[str] = None
+    country_code: Optional[str] = None
+    description: Optional[str] = None
+    is_available: Optional[bool] = None
+    is_trial_eligible: Optional[bool] = None
+    price_kopeks: Optional[int] = None
+    max_users: Optional[int] = None
+    current_users: Optional[int] = None
+    sort_order: Optional[int] = None
     is_synced: bool = False
     active_subscriptions: int = 0
 
 
 class SquadCreateRequest(BaseModel):
     """Request to create a new squad."""
-
     name: str = Field(..., min_length=1, max_length=255)
-    inbound_uuids: list[str] = Field(default_factory=list)
+    inbound_uuids: List[str] = Field(default_factory=list)
 
 
 class SquadUpdateRequest(BaseModel):
     """Request to update a squad."""
-
-    name: str | None = Field(None, min_length=1, max_length=255)
-    inbound_uuids: list[str] | None = None
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    inbound_uuids: Optional[List[str]] = None
 
 
 class SquadActionRequest(BaseModel):
     """Request to perform squad action."""
-
-    action: Literal['add_all_users', 'remove_all_users', 'delete', 'rename', 'update_inbounds']
-    name: str | None = None
-    inbound_uuids: list[str] | None = None
+    action: Literal["add_all_users", "remove_all_users", "delete", "rename", "update_inbounds"]
+    name: Optional[str] = None
+    inbound_uuids: Optional[List[str]] = None
 
 
 class SquadOperationResponse(BaseModel):
     """Response after squad operation."""
-
     success: bool
-    message: str | None = None
-    data: dict[str, Any] | None = None
+    message: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
 
 
 # ============ Migration ============
 
-
 class MigrationPreviewResponse(BaseModel):
     """Preview of squad migration."""
-
     squad_uuid: str
     squad_name: str
     current_users: int
-    max_users: int | None = None
+    max_users: Optional[int] = None
     users_to_migrate: int
 
 
 class MigrationRequest(BaseModel):
     """Request to migrate users between squads."""
-
     source_uuid: str
     target_uuid: str
 
 
 class MigrationStats(BaseModel):
     """Migration statistics."""
-
     source_uuid: str
     target_uuid: str
     total: int = 0
@@ -301,96 +270,83 @@ class MigrationStats(BaseModel):
 
 class MigrationResponse(BaseModel):
     """Response after migration."""
-
     success: bool
-    message: str | None = None
-    error: str | None = None
-    data: MigrationStats | None = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+    data: Optional[MigrationStats] = None
 
 
 # ============ Inbounds ============
 
-
 class InboundInfo(BaseModel):
     """Inbound information."""
-
     uuid: str
     tag: str
-    type: str | None = None
-    network: str | None = None
-    security: str | None = None
+    type: Optional[str] = None
+    network: Optional[str] = None
+    security: Optional[str] = None
 
 
 class InboundsListResponse(BaseModel):
     """List of inbounds response."""
-
-    items: list[dict[str, Any]] = Field(default_factory=list)
+    items: List[Dict[str, Any]] = Field(default_factory=list)
     total: int = 0
 
 
 # ============ Auto Sync ============
 
-
 class AutoSyncTime(BaseModel):
     """Scheduled sync time."""
-
     hour: int
     minute: int
 
 
 class AutoSyncStatus(BaseModel):
     """Auto sync status."""
-
     enabled: bool
-    times: list[str] = Field(default_factory=list)  # HH:MM format
-    next_run: datetime | None = None
+    times: List[str] = Field(default_factory=list)  # HH:MM format
+    next_run: Optional[datetime] = None
     is_running: bool = False
-    last_run_started_at: datetime | None = None
-    last_run_finished_at: datetime | None = None
-    last_run_success: bool | None = None
-    last_run_reason: str | None = None
-    last_run_error: str | None = None
-    last_user_stats: dict[str, Any] | None = None
-    last_server_stats: dict[str, Any] | None = None
+    last_run_started_at: Optional[datetime] = None
+    last_run_finished_at: Optional[datetime] = None
+    last_run_success: Optional[bool] = None
+    last_run_reason: Optional[str] = None
+    last_run_error: Optional[str] = None
+    last_user_stats: Optional[Dict[str, Any]] = None
+    last_server_stats: Optional[Dict[str, Any]] = None
 
 
 class AutoSyncToggleRequest(BaseModel):
     """Request to toggle auto sync."""
-
     enabled: bool
 
 
 class AutoSyncRunResponse(BaseModel):
     """Response after running sync."""
-
     started: bool
-    success: bool | None = None
-    error: str | None = None
-    user_stats: dict[str, Any] | None = None
-    server_stats: dict[str, Any] | None = None
-    reason: str | None = None
+    success: Optional[bool] = None
+    error: Optional[str] = None
+    user_stats: Optional[Dict[str, Any]] = None
+    server_stats: Optional[Dict[str, Any]] = None
+    reason: Optional[str] = None
 
 
 # ============ Manual Sync ============
 
-
 class SyncMode(BaseModel):
     """Sync mode options."""
-
-    mode: Literal['all', 'new_only', 'update_only'] = 'all'
+    mode: Literal["all", "new_only", "update_only"] = "all"
 
 
 class SyncResponse(BaseModel):
     """Response after sync operation."""
-
     success: bool
-    message: str | None = None
-    data: dict[str, Any] | None = None
+    message: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
 
 
 class SyncRecommendations(BaseModel):
     """Sync recommendations."""
-
     success: bool
-    message: str | None = None
-    data: dict[str, Any] | None = None
+    message: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None

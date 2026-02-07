@@ -10,28 +10,27 @@
 """
 
 from .constants import (
-    AVAILABLE_CALLBACKS,
-    BUILTIN_BUTTONS_INFO,
-    DEFAULT_MENU_CONFIG,
-    DYNAMIC_PLACEHOLDERS,
     MENU_LAYOUT_CONFIG_KEY,
+    DEFAULT_MENU_CONFIG,
+    BUILTIN_BUTTONS_INFO,
+    AVAILABLE_CALLBACKS,
+    DYNAMIC_PLACEHOLDERS,
 )
 from .context import MenuContext
 from .history_service import MenuLayoutHistoryService
-from .service import MenuLayoutService
 from .stats_service import MenuLayoutStatsService
-
+from .service import MenuLayoutService
 
 __all__ = [
-    'AVAILABLE_CALLBACKS',
-    'BUILTIN_BUTTONS_INFO',
-    'DEFAULT_MENU_CONFIG',
-    'DYNAMIC_PLACEHOLDERS',
     # Константы
-    'MENU_LAYOUT_CONFIG_KEY',
+    "MENU_LAYOUT_CONFIG_KEY",
+    "DEFAULT_MENU_CONFIG",
+    "BUILTIN_BUTTONS_INFO",
+    "AVAILABLE_CALLBACKS",
+    "DYNAMIC_PLACEHOLDERS",
     # Классы
-    'MenuContext',
-    'MenuLayoutHistoryService',
-    'MenuLayoutService',
-    'MenuLayoutStatsService',
+    "MenuContext",
+    "MenuLayoutService",
+    "MenuLayoutHistoryService",
+    "MenuLayoutStatsService",
 ]

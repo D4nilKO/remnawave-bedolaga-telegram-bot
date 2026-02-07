@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Optional
 
 from aiogram import Bot
 from aiogram.exceptions import (
@@ -16,11 +17,10 @@ from app.database.database import AsyncSessionLocal
 from app.database.models import PinnedMessage, User, UserStatus
 from app.utils.validators import sanitize_html, validate_html_tags
 
-
 logger = logging.getLogger(__name__)
 
 
-async def get_active_pinned_message(db: AsyncSession) -> PinnedMessage | None:
+async def get_active_pinned_message(db: AsyncSession) -> Optional[PinnedMessage]:
     result = await db.execute(
         select(PinnedMessage)
         .where(PinnedMessage.is_active.is_(True))
@@ -33,19 +33,19 @@ async def get_active_pinned_message(db: AsyncSession) -> PinnedMessage | None:
 async def set_active_pinned_message(
     db: AsyncSession,
     content: str,
-    created_by: int | None = None,
-    media_type: str | None = None,
-    media_file_id: str | None = None,
-    send_before_menu: bool | None = None,
-    send_on_every_start: bool | None = None,
+    created_by: Optional[int] = None,
+    media_type: Optional[str] = None,
+    media_file_id: Optional[str] = None,
+    send_before_menu: Optional[bool] = None,
+    send_on_every_start: Optional[bool] = None,
 ) -> PinnedMessage:
-    sanitized_content = sanitize_html(content or '')
+    sanitized_content = sanitize_html(content or "")
     is_valid, error_message = validate_html_tags(sanitized_content)
     if not is_valid:
         raise ValueError(error_message)
 
-    if media_type not in {None, 'photo', 'video'}:
-        raise ValueError('Поддерживаются только фото или видео в закрепленном сообщении')
+    if media_type not in {None, "photo", "video"}:
+        raise ValueError("Поддерживаются только фото или видео в закрепленном сообщении")
 
     if created_by is not None:
         creator_id = await db.scalar(select(User.id).where(User.id == created_by))
@@ -54,7 +54,11 @@ async def set_active_pinned_message(
 
     previous_active = await get_active_pinned_message(db)
 
-    await db.execute(update(PinnedMessage).where(PinnedMessage.is_active.is_(True)).values(is_active=False))
+    await db.execute(
+        update(PinnedMessage)
+        .where(PinnedMessage.is_active.is_(True))
+        .values(is_active=False)
+    )
 
     pinned_message = PinnedMessage(
         content=sanitized_content,
@@ -63,12 +67,14 @@ async def set_active_pinned_message(
         is_active=True,
         created_by=creator_id,
         send_before_menu=(
-            send_before_menu if send_before_menu is not None else getattr(previous_active, 'send_before_menu', True)
+            send_before_menu
+            if send_before_menu is not None
+            else getattr(previous_active, "send_before_menu", True)
         ),
         send_on_every_start=(
             send_on_every_start
             if send_on_every_start is not None
-            else getattr(previous_active, 'send_on_every_start', True)
+            else getattr(previous_active, "send_on_every_start", True)
         ),
     )
 
@@ -76,11 +82,11 @@ async def set_active_pinned_message(
     await db.commit()
     await db.refresh(pinned_message)
 
-    logger.info('Создано новое закрепленное сообщение #%s', pinned_message.id)
+    logger.info("Создано новое закрепленное сообщение #%s", pinned_message.id)
     return pinned_message
 
 
-async def deactivate_active_pinned_message(db: AsyncSession) -> PinnedMessage | None:
+async def deactivate_active_pinned_message(db: AsyncSession) -> Optional[PinnedMessage]:
     pinned_message = await get_active_pinned_message(db)
     if not pinned_message:
         return None
@@ -89,7 +95,7 @@ async def deactivate_active_pinned_message(db: AsyncSession) -> PinnedMessage | 
     pinned_message.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(pinned_message)
-    logger.info('Деактивировано закрепленное сообщение #%s', pinned_message.id)
+    logger.info("Деактивировано закрепленное сообщение #%s", pinned_message.id)
     return pinned_message
 
 
@@ -97,24 +103,20 @@ async def deliver_pinned_message_to_user(
     bot: Bot,
     db: AsyncSession,
     user: User,
-    pinned_message: PinnedMessage | None = None,
+    pinned_message: Optional[PinnedMessage] = None,
 ) -> bool:
     pinned_message = pinned_message or await get_active_pinned_message(db)
     if not pinned_message:
         return False
 
     if not pinned_message.send_on_every_start:
-        last_pinned_id = getattr(user, 'last_pinned_message_id', None)
+        last_pinned_id = getattr(user, "last_pinned_message_id", None)
         if last_pinned_id == pinned_message.id:
             return False
 
-    # Skip email-only users (no telegram_id)
-    if not user.telegram_id:
-        return False
-
     success = await _send_and_pin_message(bot, user.telegram_id, pinned_message)
     if success:
-        await _mark_pinned_delivery(user_id=getattr(user, 'id', None), pinned_message_id=pinned_message.id)
+        await _mark_pinned_delivery(user_id=getattr(user, "id", None), pinned_message_id=pinned_message.id)
     return success
 
 
@@ -123,15 +125,7 @@ async def broadcast_pinned_message(
     db: AsyncSession,
     pinned_message: PinnedMessage,
 ) -> tuple[int, int]:
-    """
-    Рассылает закреплённое сообщение всем активным пользователям.
-
-    ВАЖНО: Извлекаем telegram_id в список ДО начала долгой рассылки,
-    чтобы избежать обращения к ORM-объектам после истечения таймаута
-    соединения с БД.
-    """
-    # Собираем telegram_id всех активных пользователей
-    recipient_telegram_ids: list[int] = []
+    users: list[User] = []
     offset = 0
     batch_size = 5000
 
@@ -146,26 +140,21 @@ async def broadcast_pinned_message(
         if not batch:
             break
 
-        # Извлекаем только telegram_id, фильтруем email-only пользователей
-        for user in batch:
-            if user.telegram_id is not None:
-                recipient_telegram_ids.append(user.telegram_id)
-
+        users.extend(batch)
         offset += batch_size
 
     sent_count = 0
     failed_count = 0
     semaphore = asyncio.Semaphore(3)
 
-    async def send_to_telegram_id(telegram_id: int) -> None:
+    async def send_to_user(user: User) -> None:
         nonlocal sent_count, failed_count
-
         async with semaphore:
             for attempt in range(3):
                 try:
                     success = await _send_and_pin_message(
                         bot,
-                        telegram_id,
+                        user.telegram_id,
                         pinned_message,
                     )
                     if success:
@@ -176,23 +165,23 @@ async def broadcast_pinned_message(
                 except TelegramRetryAfter as retry_error:
                     delay = min(retry_error.retry_after + 1, 30)
                     logger.warning(
-                        'RetryAfter for user %s, waiting %s seconds',
-                        telegram_id,
+                        "RetryAfter for user %s, waiting %s seconds",
+                        user.telegram_id,
                         delay,
                     )
                     await asyncio.sleep(delay)
-                except Exception as send_error:
+                except Exception as send_error:  # noqa: BLE001
                     logger.error(
-                        'Ошибка отправки закрепленного сообщения пользователю %s: %s',
-                        telegram_id,
+                        "Ошибка отправки закрепленного сообщения пользователю %s: %s",
+                        user.telegram_id,
                         send_error,
                     )
                     failed_count += 1
                     break
 
-    for i in range(0, len(recipient_telegram_ids), 30):
-        batch = recipient_telegram_ids[i : i + 30]
-        tasks = [send_to_telegram_id(tid) for tid in batch]
+    for i in range(0, len(users), 30):
+        batch = users[i : i + 30]
+        tasks = [send_to_user(user) for user in batch]
         await asyncio.gather(*tasks)
         await asyncio.sleep(0.05)
 
@@ -203,19 +192,11 @@ async def unpin_active_pinned_message(
     bot: Bot,
     db: AsyncSession,
 ) -> tuple[int, int, bool]:
-    """
-    Открепляет активное сообщение у всех пользователей.
-
-    ВАЖНО: Извлекаем telegram_id в список ДО начала долгой операции,
-    чтобы избежать обращения к ORM-объектам после истечения таймаута
-    соединения с БД.
-    """
     pinned_message = await deactivate_active_pinned_message(db)
     if not pinned_message:
         return 0, 0, False
 
-    # Собираем telegram_id всех активных пользователей
-    recipient_telegram_ids: list[int] = []
+    users: list[User] = []
     offset = 0
     batch_size = 5000
 
@@ -230,23 +211,18 @@ async def unpin_active_pinned_message(
         if not batch:
             break
 
-        # Извлекаем только telegram_id, фильтруем email-only пользователей
-        for user in batch:
-            if user.telegram_id is not None:
-                recipient_telegram_ids.append(user.telegram_id)
-
+        users.extend(batch)
         offset += batch_size
 
     unpinned_count = 0
     failed_count = 0
     semaphore = asyncio.Semaphore(5)
 
-    async def unpin_for_telegram_id(telegram_id: int) -> None:
+    async def unpin_for_user(user: User) -> None:
         nonlocal unpinned_count, failed_count
-
         async with semaphore:
             try:
-                success = await _unpin_message_for_user(bot, telegram_id)
+                success = await _unpin_message_for_user(bot, user.telegram_id)
                 if success:
                     unpinned_count += 1
                 else:
@@ -254,31 +230,23 @@ async def unpin_active_pinned_message(
             except TelegramRetryAfter as retry_error:
                 delay = min(retry_error.retry_after + 1, 30)
                 logger.warning(
-                    'RetryAfter while unpinning for user %s, waiting %s seconds',
-                    telegram_id,
+                    "RetryAfter while unpinning for user %s, waiting %s seconds",
+                    user.telegram_id,
                     delay,
                 )
                 await asyncio.sleep(delay)
-                # Повторная попытка после ожидания
-                try:
-                    success = await _unpin_message_for_user(bot, telegram_id)
-                    if success:
-                        unpinned_count += 1
-                    else:
-                        failed_count += 1
-                except Exception:
-                    failed_count += 1
-            except Exception as error:
+                await unpin_for_user(user)
+            except Exception as error:  # noqa: BLE001
                 logger.error(
-                    'Ошибка открепления сообщения у пользователя %s: %s',
-                    telegram_id,
+                    "Ошибка открепления сообщения у пользователя %s: %s",
+                    user.telegram_id,
                     error,
                 )
                 failed_count += 1
 
-    for i in range(0, len(recipient_telegram_ids), 40):
-        batch = recipient_telegram_ids[i : i + 40]
-        tasks = [unpin_for_telegram_id(tid) for tid in batch]
+    for i in range(0, len(users), 40):
+        batch = users[i : i + 40]
+        tasks = [unpin_for_user(user) for user in batch]
         await asyncio.gather(*tasks)
         await asyncio.sleep(0.05)
 
@@ -286,7 +254,7 @@ async def unpin_active_pinned_message(
 
 
 async def _mark_pinned_delivery(
-    user_id: int | None,
+    user_id: Optional[int],
     pinned_message_id: int,
 ) -> None:
     if not user_id:
@@ -313,27 +281,27 @@ async def _send_and_pin_message(bot: Bot, chat_id: int, pinned_message: PinnedMe
         return False
 
     try:
-        if pinned_message.media_type == 'photo' and pinned_message.media_file_id:
+        if pinned_message.media_type == "photo" and pinned_message.media_file_id:
             sent_message = await bot.send_photo(
                 chat_id=chat_id,
                 photo=pinned_message.media_file_id,
                 caption=pinned_message.content or None,
-                parse_mode='HTML' if pinned_message.content else None,
+                parse_mode="HTML" if pinned_message.content else None,
                 disable_notification=True,
             )
-        elif pinned_message.media_type == 'video' and pinned_message.media_file_id:
+        elif pinned_message.media_type == "video" and pinned_message.media_file_id:
             sent_message = await bot.send_video(
                 chat_id=chat_id,
                 video=pinned_message.media_file_id,
                 caption=pinned_message.content or None,
-                parse_mode='HTML' if pinned_message.content else None,
+                parse_mode="HTML" if pinned_message.content else None,
                 disable_notification=True,
             )
         else:
             sent_message = await bot.send_message(
                 chat_id=chat_id,
                 text=pinned_message.content,
-                parse_mode='HTML',
+                parse_mode="HTML",
                 disable_web_page_preview=True,
                 disable_notification=True,
             )
@@ -347,13 +315,13 @@ async def _send_and_pin_message(bot: Bot, chat_id: int, pinned_message: PinnedMe
         return False
     except TelegramBadRequest as error:
         logger.warning(
-            'Некорректный запрос при отправке закрепленного сообщения в чат %s: %s',
+            "Некорректный запрос при отправке закрепленного сообщения в чат %s: %s",
             chat_id,
             error,
         )
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         logger.error(
-            'Не удалось отправить закрепленное сообщение пользователю %s: %s',
+            "Не удалось отправить закрепленное сообщение пользователю %s: %s",
             chat_id,
             error,
         )
@@ -369,9 +337,9 @@ async def _unpin_message_for_user(bot: Bot, chat_id: int) -> bool:
         return False
     except TelegramBadRequest:
         return False
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001
         logger.error(
-            'Не удалось открепить сообщение у пользователя %s: %s',
+            "Не удалось открепить сообщение у пользователя %s: %s",
             chat_id,
             error,
         )

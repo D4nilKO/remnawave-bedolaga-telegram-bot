@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
 
 class PartnerReferrerItem(BaseModel):
     id: int
-    telegram_id: int | None = None
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
-    referral_code: str | None = None
-    referral_commission_percent: int | None = None
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    referral_code: Optional[str] = None
+    referral_commission_percent: Optional[int] = None
     effective_referral_commission_percent: int
     invited_count: int
     active_referrals: int
@@ -21,11 +22,11 @@ class PartnerReferrerItem(BaseModel):
     month_earned_kopeks: int
     month_earned_rubles: float
     created_at: datetime
-    last_activity: datetime | None = None
+    last_activity: Optional[datetime] = None
 
 
 class PartnerReferrerListResponse(BaseModel):
-    items: list[PartnerReferrerItem] = Field(default_factory=list)
+    items: List[PartnerReferrerItem] = Field(default_factory=list)
     total: int
     limit: int
     offset: int
@@ -33,11 +34,11 @@ class PartnerReferrerListResponse(BaseModel):
 
 class PartnerReferralItem(BaseModel):
     id: int
-    telegram_id: int | None = None
+    telegram_id: int
     full_name: str
-    username: str | None = None
+    username: Optional[str] = None
     created_at: datetime
-    last_activity: datetime | None = None
+    last_activity: Optional[datetime] = None
     has_made_first_topup: bool
     balance_kopeks: int
     balance_rubles: float
@@ -45,12 +46,12 @@ class PartnerReferralItem(BaseModel):
     total_earned_rubles: float
     topups_count: int
     days_since_registration: int
-    days_since_activity: int | None = None
+    days_since_activity: Optional[int] = None
     status: str
 
 
 class PartnerReferralList(BaseModel):
-    items: list[PartnerReferralItem] = Field(default_factory=list)
+    items: List[PartnerReferralItem] = Field(default_factory=list)
     total: int
     limit: int
     offset: int
@@ -66,11 +67,11 @@ class PartnerReferrerDetail(BaseModel):
 
 
 class PartnerReferralCommissionUpdate(BaseModel):
-    referral_commission_percent: int | None = Field(
+    referral_commission_percent: Optional[int] = Field(
         default=None,
         ge=0,
         le=100,
-        description='Индивидуальный процент реферальной комиссии для пользователя',
+        description="Индивидуальный процент реферальной комиссии для пользователя",
     )
 
 
@@ -81,7 +82,6 @@ class PartnerReferralCommissionUpdate(BaseModel):
 
 class EarningsByPeriod(BaseModel):
     """Заработки по периодам."""
-
     all_time_kopeks: int
     year_kopeks: int
     month_kopeks: int
@@ -91,7 +91,6 @@ class EarningsByPeriod(BaseModel):
 
 class ReferralsCountByPeriod(BaseModel):
     """Количество рефералов по периодам."""
-
     all_time: int
     year: int
     month: int
@@ -101,7 +100,6 @@ class ReferralsCountByPeriod(BaseModel):
 
 class ReferrerSummary(BaseModel):
     """Сводка по рефереру."""
-
     total_referrals: int
     paid_referrals: int
     active_referrals: int
@@ -112,7 +110,6 @@ class ReferrerSummary(BaseModel):
 
 class ReferrerDetailedStats(BaseModel):
     """Детальная статистика реферера."""
-
     user_id: int
     summary: ReferrerSummary
     earnings: EarningsByPeriod
@@ -121,7 +118,6 @@ class ReferrerDetailedStats(BaseModel):
 
 class DailyStats(BaseModel):
     """Статистика за день."""
-
     date: str
     referrals_count: int
     earnings_kopeks: int
@@ -129,20 +125,18 @@ class DailyStats(BaseModel):
 
 class DailyStatsResponse(BaseModel):
     """Ответ со статистикой по дням."""
-
-    items: list[DailyStats]
+    items: List[DailyStats]
     days: int
-    user_id: int | None = None
+    user_id: Optional[int] = None
 
 
 class TopReferralItem(BaseModel):
     """Топ реферал."""
-
     id: int
-    telegram_id: int | None = None
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     full_name: str
     created_at: datetime
     has_made_first_topup: bool
@@ -152,14 +146,12 @@ class TopReferralItem(BaseModel):
 
 class TopReferralsResponse(BaseModel):
     """Топ рефералов реферера."""
-
-    items: list[TopReferralItem]
+    items: List[TopReferralItem]
     user_id: int
 
 
 class PeriodData(BaseModel):
     """Данные за период."""
-
     days: int
     start: str
     end: str
@@ -169,7 +161,6 @@ class PeriodData(BaseModel):
 
 class ChangeData(BaseModel):
     """Данные об изменении."""
-
     absolute: int
     percent: float
     trend: str  # up, down, stable
@@ -177,23 +168,20 @@ class ChangeData(BaseModel):
 
 class PeriodChange(BaseModel):
     """Изменения между периодами."""
-
     referrals: ChangeData
     earnings: ChangeData
 
 
 class PeriodComparisonResponse(BaseModel):
     """Сравнение периодов."""
-
     current_period: PeriodData
     previous_period: PeriodData
     change: PeriodChange
-    user_id: int | None = None
+    user_id: Optional[int] = None
 
 
 class GlobalPartnerSummary(BaseModel):
     """Глобальная сводка партнёрской программы."""
-
     total_referrers: int
     total_referrals: int
     paid_referrals: int
@@ -203,7 +191,6 @@ class GlobalPartnerSummary(BaseModel):
 
 class PayoutsByPeriod(BaseModel):
     """Выплаты по периодам."""
-
     all_time_kopeks: int
     year_kopeks: int
     month_kopeks: int
@@ -213,7 +200,6 @@ class PayoutsByPeriod(BaseModel):
 
 class NewReferralsByPeriod(BaseModel):
     """Новые рефералы по периодам."""
-
     today: int
     week: int
     month: int
@@ -221,7 +207,6 @@ class NewReferralsByPeriod(BaseModel):
 
 class GlobalPartnerStats(BaseModel):
     """Глобальная статистика партнёрской программы."""
-
     summary: GlobalPartnerSummary
     payouts: PayoutsByPeriod
     new_referrals: NewReferralsByPeriod
@@ -229,20 +214,18 @@ class GlobalPartnerStats(BaseModel):
 
 class TopReferrerItem(BaseModel):
     """Топ реферер."""
-
     id: int
-    telegram_id: int | None = None
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     full_name: str
-    referral_code: str | None = None
+    referral_code: Optional[str] = None
     referrals_count: int
     total_earnings_kopeks: int
 
 
 class TopReferrersResponse(BaseModel):
     """Топ рефереров."""
-
-    items: list[TopReferrerItem]
-    days: int | None = None
+    items: List[TopReferrerItem]
+    days: Optional[int] = None

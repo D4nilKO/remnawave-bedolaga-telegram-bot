@@ -3,38 +3,36 @@
 import logging
 import math
 from datetime import datetime
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
-from sqlalchemy import desc, func, select
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, desc
 from sqlalchemy.orm import selectinload
+from pydantic import BaseModel, Field
 
-from app.cabinet.routes.websocket import notify_user_ticket_reply
-from app.config import settings
-from app.database.crud.ticket import TicketCRUD
+from app.database.models import User, Ticket, TicketMessage
+from app.database.crud.ticket import TicketCRUD, TicketMessageCRUD
 from app.database.crud.ticket_notification import TicketNotificationCRUD
-from app.database.models import Ticket, TicketMessage, User
+from app.config import settings
+from app.cabinet.routes.websocket import notify_user_ticket_reply
 
 from ..dependencies import get_cabinet_db, get_current_admin_user
 from ..schemas.tickets import TicketMessageResponse
 
-
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix='/admin/tickets', tags=['Cabinet Admin Tickets'])
+router = APIRouter(prefix="/admin/tickets", tags=["Cabinet Admin Tickets"])
 
 
 # Admin-specific schemas
 class AdminTicketUserInfo(BaseModel):
     """User info for admin view."""
-
     id: int
-    telegram_id: int | None = None  # Can be None for email-only users
-    email: str | None = None
-    username: str | None = None
-    first_name: str | None = None
-    last_name: str | None = None
+    telegram_id: int
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -42,17 +40,16 @@ class AdminTicketUserInfo(BaseModel):
 
 class AdminTicketResponse(BaseModel):
     """Ticket data for admin."""
-
     id: int
     title: str
     status: str
     priority: str
     created_at: datetime
     updated_at: datetime
-    closed_at: datetime | None = None
+    closed_at: Optional[datetime] = None
     messages_count: int = 0
-    user: AdminTicketUserInfo | None = None
-    last_message: TicketMessageResponse | None = None
+    user: Optional[AdminTicketUserInfo] = None
+    last_message: Optional[TicketMessageResponse] = None
 
     class Config:
         from_attributes = True
@@ -60,17 +57,16 @@ class AdminTicketResponse(BaseModel):
 
 class AdminTicketDetailResponse(BaseModel):
     """Ticket with all messages for admin."""
-
     id: int
     title: str
     status: str
     priority: str
     created_at: datetime
     updated_at: datetime
-    closed_at: datetime | None = None
+    closed_at: Optional[datetime] = None
     is_reply_blocked: bool = False
-    user: AdminTicketUserInfo | None = None
-    messages: list[TicketMessageResponse] = []
+    user: Optional[AdminTicketUserInfo] = None
+    messages: List[TicketMessageResponse] = []
 
     class Config:
         from_attributes = True
@@ -78,8 +74,7 @@ class AdminTicketDetailResponse(BaseModel):
 
 class AdminTicketListResponse(BaseModel):
     """Paginated ticket list for admin."""
-
-    items: list[AdminTicketResponse]
+    items: List[AdminTicketResponse]
     total: int
     page: int
     per_page: int
@@ -88,25 +83,21 @@ class AdminTicketListResponse(BaseModel):
 
 class AdminReplyRequest(BaseModel):
     """Admin reply to ticket."""
-
-    message: str = Field(..., min_length=1, max_length=4000, description='Reply message')
+    message: str = Field(..., min_length=1, max_length=4000, description="Reply message")
 
 
 class AdminStatusUpdateRequest(BaseModel):
     """Update ticket status."""
-
-    status: str = Field(..., description='New status: open, answered, pending, closed')
+    status: str = Field(..., description="New status: open, answered, pending, closed")
 
 
 class AdminPriorityUpdateRequest(BaseModel):
     """Update ticket priority."""
-
-    priority: str = Field(..., description='New priority: low, normal, high, urgent')
+    priority: str = Field(..., description="New priority: low, normal, high, urgent")
 
 
 class AdminStatsResponse(BaseModel):
     """Ticket statistics for admin."""
-
     total: int
     open: int
     pending: int
@@ -116,7 +107,6 @@ class AdminStatsResponse(BaseModel):
 
 class TicketSettingsResponse(BaseModel):
     """Ticket system settings."""
-
     sla_enabled: bool
     sla_minutes: int
     sla_check_interval_seconds: int
@@ -129,24 +119,21 @@ class TicketSettingsResponse(BaseModel):
 
 class TicketSettingsUpdateRequest(BaseModel):
     """Update ticket settings."""
-
-    sla_enabled: bool | None = None
-    sla_minutes: int | None = Field(None, ge=1, le=1440, description='SLA time in minutes (1-1440)')
-    sla_check_interval_seconds: int | None = Field(None, ge=30, le=600, description='Check interval (30-600 seconds)')
-    sla_reminder_cooldown_minutes: int | None = Field(
-        None, ge=1, le=120, description='Reminder cooldown (1-120 minutes)'
-    )
-    support_system_mode: str | None = Field(None, description='Support mode: tickets, contact, both')
+    sla_enabled: Optional[bool] = None
+    sla_minutes: Optional[int] = Field(None, ge=1, le=1440, description="SLA time in minutes (1-1440)")
+    sla_check_interval_seconds: Optional[int] = Field(None, ge=30, le=600, description="Check interval (30-600 seconds)")
+    sla_reminder_cooldown_minutes: Optional[int] = Field(None, ge=1, le=120, description="Reminder cooldown (1-120 minutes)")
+    support_system_mode: Optional[str] = Field(None, description="Support mode: tickets, contact, both")
     # Cabinet notifications settings
-    cabinet_user_notifications_enabled: bool | None = Field(None, description='Enable user notifications in cabinet')
-    cabinet_admin_notifications_enabled: bool | None = Field(None, description='Enable admin notifications in cabinet')
+    cabinet_user_notifications_enabled: Optional[bool] = Field(None, description="Enable user notifications in cabinet")
+    cabinet_admin_notifications_enabled: Optional[bool] = Field(None, description="Enable admin notifications in cabinet")
 
 
 def _message_to_response(message: TicketMessage) -> TicketMessageResponse:
     """Convert TicketMessage to response."""
     return TicketMessageResponse(
         id=message.id,
-        message_text=message.message_text or '',
+        message_text=message.message_text or "",
         is_from_admin=message.is_from_admin,
         has_media=bool(message.media_file_id),
         media_type=message.media_type,
@@ -161,7 +148,6 @@ def _user_to_info(user: User) -> AdminTicketUserInfo:
     return AdminTicketUserInfo(
         id=user.id,
         telegram_id=user.telegram_id,
-        email=user.email,
         username=user.username,
         first_name=user.first_name,
         last_name=user.last_name,
@@ -183,9 +169,9 @@ def _ticket_to_admin_response(ticket: Ticket, include_messages: bool = False) ->
 
     return AdminTicketResponse(
         id=ticket.id,
-        title=ticket.title or f'Ticket #{ticket.id}',
+        title=ticket.title or f"Ticket #{ticket.id}",
         status=ticket.status,
-        priority=ticket.priority or 'normal',
+        priority=ticket.priority or "normal",
         created_at=ticket.created_at,
         updated_at=ticket.updated_at or ticket.created_at,
         closed_at=ticket.closed_at,
@@ -195,7 +181,7 @@ def _ticket_to_admin_response(ticket: Ticket, include_messages: bool = False) ->
     )
 
 
-@router.get('/stats', response_model=AdminStatsResponse)
+@router.get("/stats", response_model=AdminStatsResponse)
 async def get_ticket_stats(
     admin: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_cabinet_db),
@@ -207,142 +193,36 @@ async def get_ticket_stats(
 
     # Count by status
     statuses = {}
-    for status_name in ['open', 'pending', 'answered', 'closed']:
-        result = await db.execute(select(func.count()).select_from(Ticket).where(Ticket.status == status_name))
+    for status_name in ["open", "pending", "answered", "closed"]:
+        result = await db.execute(
+            select(func.count()).select_from(Ticket).where(Ticket.status == status_name)
+        )
         statuses[status_name] = result.scalar() or 0
 
     return AdminStatsResponse(
         total=total,
-        open=statuses.get('open', 0),
-        pending=statuses.get('pending', 0),
-        answered=statuses.get('answered', 0),
-        closed=statuses.get('closed', 0),
+        open=statuses.get("open", 0),
+        pending=statuses.get("pending", 0),
+        answered=statuses.get("answered", 0),
+        closed=statuses.get("closed", 0),
     )
 
 
-@router.get('/settings', response_model=TicketSettingsResponse)
-async def get_ticket_settings(
-    admin: User = Depends(get_current_admin_user),
-    db: AsyncSession = Depends(get_cabinet_db),
-):
-    """Get ticket system settings."""
-    from app.services.support_settings_service import SupportSettingsService
-
-    return TicketSettingsResponse(
-        sla_enabled=settings.SUPPORT_TICKET_SLA_ENABLED,
-        sla_minutes=settings.SUPPORT_TICKET_SLA_MINUTES,
-        sla_check_interval_seconds=settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS,
-        sla_reminder_cooldown_minutes=settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES,
-        support_system_mode=settings.get_support_system_mode(),
-        cabinet_user_notifications_enabled=SupportSettingsService.get_cabinet_user_notifications_enabled(),
-        cabinet_admin_notifications_enabled=SupportSettingsService.get_cabinet_admin_notifications_enabled(),
-    )
-
-
-@router.patch('/settings', response_model=TicketSettingsResponse)
-async def update_ticket_settings(
-    request: TicketSettingsUpdateRequest,
-    admin: User = Depends(get_current_admin_user),
-    db: AsyncSession = Depends(get_cabinet_db),
-):
-    """Update ticket system settings."""
-    from pathlib import Path
-
-    from app.services.support_settings_service import SupportSettingsService
-
-    # Validate support_system_mode
-    if request.support_system_mode is not None:
-        mode = request.support_system_mode.strip().lower()
-        if mode not in {'tickets', 'contact', 'both'}:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail='Invalid support_system_mode. Must be: tickets, contact, or both',
-            )
-
-    # Update in-memory settings
-    if request.sla_enabled is not None:
-        settings.SUPPORT_TICKET_SLA_ENABLED = request.sla_enabled
-    if request.sla_minutes is not None:
-        settings.SUPPORT_TICKET_SLA_MINUTES = request.sla_minutes
-    if request.sla_check_interval_seconds is not None:
-        settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS = request.sla_check_interval_seconds
-    if request.sla_reminder_cooldown_minutes is not None:
-        settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES = request.sla_reminder_cooldown_minutes
-    if request.support_system_mode is not None:
-        settings.SUPPORT_SYSTEM_MODE = request.support_system_mode.strip().lower()
-
-    # Update cabinet notification settings
-    if request.cabinet_user_notifications_enabled is not None:
-        SupportSettingsService.set_cabinet_user_notifications_enabled(request.cabinet_user_notifications_enabled)
-    if request.cabinet_admin_notifications_enabled is not None:
-        SupportSettingsService.set_cabinet_admin_notifications_enabled(request.cabinet_admin_notifications_enabled)
-
-    # Try to persist to .env file
-    try:
-        env_file = Path('.env')
-        if env_file.exists():
-            lines = env_file.read_text().splitlines()
-            updates = {}
-
-            if request.sla_enabled is not None:
-                updates['SUPPORT_TICKET_SLA_ENABLED'] = str(request.sla_enabled).lower()
-            if request.sla_minutes is not None:
-                updates['SUPPORT_TICKET_SLA_MINUTES'] = str(request.sla_minutes)
-            if request.sla_check_interval_seconds is not None:
-                updates['SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS'] = str(request.sla_check_interval_seconds)
-            if request.sla_reminder_cooldown_minutes is not None:
-                updates['SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES'] = str(request.sla_reminder_cooldown_minutes)
-            if request.support_system_mode is not None:
-                updates['SUPPORT_SYSTEM_MODE'] = request.support_system_mode.strip().lower()
-
-            new_lines = []
-            updated_keys = set()
-
-            for line in lines:
-                updated = False
-                for key, value in updates.items():
-                    if line.startswith(f'{key}='):
-                        new_lines.append(f'{key}={value}')
-                        updated_keys.add(key)
-                        updated = True
-                        break
-                if not updated:
-                    new_lines.append(line)
-
-            # Add any keys that weren't found
-            for key, value in updates.items():
-                if key not in updated_keys:
-                    new_lines.append(f'{key}={value}')
-
-            env_file.write_text('\n'.join(new_lines) + '\n')
-            logger.info('Updated ticket settings in .env file')
-    except Exception as e:
-        logger.warning(f'Failed to update .env file: {e}')
-
-    return TicketSettingsResponse(
-        sla_enabled=settings.SUPPORT_TICKET_SLA_ENABLED,
-        sla_minutes=settings.SUPPORT_TICKET_SLA_MINUTES,
-        sla_check_interval_seconds=settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS,
-        sla_reminder_cooldown_minutes=settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES,
-        support_system_mode=settings.get_support_system_mode(),
-        cabinet_user_notifications_enabled=SupportSettingsService.get_cabinet_user_notifications_enabled(),
-        cabinet_admin_notifications_enabled=SupportSettingsService.get_cabinet_admin_notifications_enabled(),
-    )
-
-
-@router.get('', response_model=AdminTicketListResponse)
+@router.get("", response_model=AdminTicketListResponse)
 async def get_all_tickets(
-    page: int = Query(1, ge=1, description='Page number'),
-    per_page: int = Query(20, ge=1, le=100, description='Items per page'),
-    status_filter: str | None = Query(None, alias='status', description='Filter by status'),
-    priority_filter: str | None = Query(None, alias='priority', description='Filter by priority'),
-    user_id: int | None = Query(None, description='Filter by user ID'),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    priority_filter: Optional[str] = Query(None, alias="priority", description="Filter by priority"),
     admin: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_cabinet_db),
 ):
     """Get all tickets for admin."""
     # Base query with user relationship
-    query = select(Ticket).options(selectinload(Ticket.messages), selectinload(Ticket.user))
+    query = (
+        select(Ticket)
+        .options(selectinload(Ticket.messages), selectinload(Ticket.user))
+    )
 
     # Build count query
     count_query = select(func.count()).select_from(Ticket)
@@ -355,10 +235,6 @@ async def get_all_tickets(
     if priority_filter:
         query = query.where(Ticket.priority == priority_filter)
         count_query = count_query.where(Ticket.priority == priority_filter)
-
-    if user_id:
-        query = query.where(Ticket.user_id == user_id)
-        count_query = count_query.where(Ticket.user_id == user_id)
 
     # Get total count
     total_result = await db.execute(count_query)
@@ -383,7 +259,7 @@ async def get_all_tickets(
     )
 
 
-@router.get('/{ticket_id}', response_model=AdminTicketDetailResponse)
+@router.get("/{ticket_id}", response_model=AdminTicketDetailResponse)
 async def get_ticket_detail(
     ticket_id: int,
     admin: User = Depends(get_current_admin_user),
@@ -391,7 +267,9 @@ async def get_ticket_detail(
 ):
     """Get ticket with all messages for admin."""
     query = (
-        select(Ticket).where(Ticket.id == ticket_id).options(selectinload(Ticket.messages), selectinload(Ticket.user))
+        select(Ticket)
+        .where(Ticket.id == ticket_id)
+        .options(selectinload(Ticket.messages), selectinload(Ticket.user))
     )
 
     result = await db.execute(query)
@@ -400,7 +278,7 @@ async def get_ticket_detail(
     if not ticket:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Ticket not found',
+            detail="Ticket not found",
         )
 
     messages = sorted(ticket.messages or [], key=lambda m: m.created_at)
@@ -412,19 +290,19 @@ async def get_ticket_detail(
 
     return AdminTicketDetailResponse(
         id=ticket.id,
-        title=ticket.title or f'Ticket #{ticket.id}',
+        title=ticket.title or f"Ticket #{ticket.id}",
         status=ticket.status,
-        priority=ticket.priority or 'normal',
+        priority=ticket.priority or "normal",
         created_at=ticket.created_at,
         updated_at=ticket.updated_at or ticket.created_at,
         closed_at=ticket.closed_at,
-        is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, 'is_reply_blocked') else False,
+        is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, "is_reply_blocked") else False,
         user=user_info,
         messages=messages_response,
     )
 
 
-@router.post('/{ticket_id}/reply', response_model=TicketMessageResponse)
+@router.post("/{ticket_id}/reply", response_model=TicketMessageResponse)
 async def reply_to_ticket(
     ticket_id: int,
     request: AdminReplyRequest,
@@ -438,7 +316,7 @@ async def reply_to_ticket(
     if not ticket:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Ticket not found',
+            detail="Ticket not found",
         )
 
     # Create admin message
@@ -452,7 +330,7 @@ async def reply_to_ticket(
     db.add(message)
 
     # Update ticket status to answered
-    ticket.status = 'answered'
+    ticket.status = "answered"
     ticket.updated_at = datetime.utcnow()
 
     await db.commit()
@@ -470,14 +348,13 @@ async def reply_to_ticket(
         )
         try:
             from app.handlers.admin.tickets import notify_user_about_ticket_reply
-
             await notify_user_about_ticket_reply(bot, ticket, request.message, db)
         except Exception as e:
-            logger.warning(f'Failed to notify user about ticket reply: {e}')
+            logger.warning(f"Failed to notify user about ticket reply: {e}")
         finally:
             await bot.session.close()
     except Exception as e:
-        logger.warning(f'Failed to send Telegram notification: {e}')
+        logger.warning(f"Failed to send Telegram notification: {e}")
 
     # Уведомить пользователя в кабинете
     try:
@@ -486,14 +363,14 @@ async def reply_to_ticket(
         )
         if notification:
             # Отправить WebSocket уведомление
-            await notify_user_ticket_reply(ticket.user_id, ticket.id, (request.message or '')[:100])
+            await notify_user_ticket_reply(ticket.user_id, ticket.id, (request.message or "")[:100])
     except Exception as e:
-        logger.warning(f'Failed to create cabinet notification for admin reply: {e}')
+        logger.warning(f"Failed to create cabinet notification for admin reply: {e}")
 
     return _message_to_response(message)
 
 
-@router.post('/{ticket_id}/status', response_model=AdminTicketDetailResponse)
+@router.post("/{ticket_id}/status", response_model=AdminTicketDetailResponse)
 async def update_ticket_status(
     ticket_id: int,
     request: AdminStatusUpdateRequest,
@@ -501,15 +378,17 @@ async def update_ticket_status(
     db: AsyncSession = Depends(get_cabinet_db),
 ):
     """Update ticket status."""
-    allowed_statuses = {'open', 'pending', 'answered', 'closed'}
+    allowed_statuses = {"open", "pending", "answered", "closed"}
     if request.status not in allowed_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f'Invalid status. Allowed: {", ".join(allowed_statuses)}',
+            detail=f"Invalid status. Allowed: {', '.join(allowed_statuses)}",
         )
 
     query = (
-        select(Ticket).where(Ticket.id == ticket_id).options(selectinload(Ticket.messages), selectinload(Ticket.user))
+        select(Ticket)
+        .where(Ticket.id == ticket_id)
+        .options(selectinload(Ticket.messages), selectinload(Ticket.user))
     )
 
     result = await db.execute(query)
@@ -518,12 +397,12 @@ async def update_ticket_status(
     if not ticket:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Ticket not found',
+            detail="Ticket not found",
         )
 
     ticket.status = request.status
     ticket.updated_at = datetime.utcnow()
-    if request.status == 'closed':
+    if request.status == "closed":
         ticket.closed_at = datetime.utcnow()
     else:
         ticket.closed_at = None
@@ -540,19 +419,19 @@ async def update_ticket_status(
 
     return AdminTicketDetailResponse(
         id=ticket.id,
-        title=ticket.title or f'Ticket #{ticket.id}',
+        title=ticket.title or f"Ticket #{ticket.id}",
         status=ticket.status,
-        priority=ticket.priority or 'normal',
+        priority=ticket.priority or "normal",
         created_at=ticket.created_at,
         updated_at=ticket.updated_at or ticket.created_at,
         closed_at=ticket.closed_at,
-        is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, 'is_reply_blocked') else False,
+        is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, "is_reply_blocked") else False,
         user=user_info,
         messages=messages_response,
     )
 
 
-@router.post('/{ticket_id}/priority', response_model=AdminTicketDetailResponse)
+@router.post("/{ticket_id}/priority", response_model=AdminTicketDetailResponse)
 async def update_ticket_priority(
     ticket_id: int,
     request: AdminPriorityUpdateRequest,
@@ -560,15 +439,17 @@ async def update_ticket_priority(
     db: AsyncSession = Depends(get_cabinet_db),
 ):
     """Update ticket priority."""
-    allowed_priorities = {'low', 'normal', 'high', 'urgent'}
+    allowed_priorities = {"low", "normal", "high", "urgent"}
     if request.priority not in allowed_priorities:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f'Invalid priority. Allowed: {", ".join(allowed_priorities)}',
+            detail=f"Invalid priority. Allowed: {', '.join(allowed_priorities)}",
         )
 
     query = (
-        select(Ticket).where(Ticket.id == ticket_id).options(selectinload(Ticket.messages), selectinload(Ticket.user))
+        select(Ticket)
+        .where(Ticket.id == ticket_id)
+        .options(selectinload(Ticket.messages), selectinload(Ticket.user))
     )
 
     result = await db.execute(query)
@@ -577,7 +458,7 @@ async def update_ticket_priority(
     if not ticket:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Ticket not found',
+            detail="Ticket not found",
         )
 
     ticket.priority = request.priority
@@ -595,13 +476,123 @@ async def update_ticket_priority(
 
     return AdminTicketDetailResponse(
         id=ticket.id,
-        title=ticket.title or f'Ticket #{ticket.id}',
+        title=ticket.title or f"Ticket #{ticket.id}",
         status=ticket.status,
-        priority=ticket.priority or 'normal',
+        priority=ticket.priority or "normal",
         created_at=ticket.created_at,
         updated_at=ticket.updated_at or ticket.created_at,
         closed_at=ticket.closed_at,
-        is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, 'is_reply_blocked') else False,
+        is_reply_blocked=ticket.is_reply_blocked if hasattr(ticket, "is_reply_blocked") else False,
         user=user_info,
         messages=messages_response,
+    )
+
+
+@router.get("/settings", response_model=TicketSettingsResponse)
+async def get_ticket_settings(
+    admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Get ticket system settings."""
+    from app.services.support_settings_service import SupportSettingsService
+
+    return TicketSettingsResponse(
+        sla_enabled=settings.SUPPORT_TICKET_SLA_ENABLED,
+        sla_minutes=settings.SUPPORT_TICKET_SLA_MINUTES,
+        sla_check_interval_seconds=settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS,
+        sla_reminder_cooldown_minutes=settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES,
+        support_system_mode=settings.get_support_system_mode(),
+        cabinet_user_notifications_enabled=SupportSettingsService.get_cabinet_user_notifications_enabled(),
+        cabinet_admin_notifications_enabled=SupportSettingsService.get_cabinet_admin_notifications_enabled(),
+    )
+
+
+@router.patch("/settings", response_model=TicketSettingsResponse)
+async def update_ticket_settings(
+    request: TicketSettingsUpdateRequest,
+    admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Update ticket system settings."""
+    import os
+    from pathlib import Path
+    from app.services.support_settings_service import SupportSettingsService
+
+    # Validate support_system_mode
+    if request.support_system_mode is not None:
+        mode = request.support_system_mode.strip().lower()
+        if mode not in {"tickets", "contact", "both"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid support_system_mode. Must be: tickets, contact, or both",
+            )
+
+    # Update in-memory settings
+    if request.sla_enabled is not None:
+        settings.SUPPORT_TICKET_SLA_ENABLED = request.sla_enabled
+    if request.sla_minutes is not None:
+        settings.SUPPORT_TICKET_SLA_MINUTES = request.sla_minutes
+    if request.sla_check_interval_seconds is not None:
+        settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS = request.sla_check_interval_seconds
+    if request.sla_reminder_cooldown_minutes is not None:
+        settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES = request.sla_reminder_cooldown_minutes
+    if request.support_system_mode is not None:
+        settings.SUPPORT_SYSTEM_MODE = request.support_system_mode.strip().lower()
+
+    # Update cabinet notification settings
+    if request.cabinet_user_notifications_enabled is not None:
+        SupportSettingsService.set_cabinet_user_notifications_enabled(request.cabinet_user_notifications_enabled)
+    if request.cabinet_admin_notifications_enabled is not None:
+        SupportSettingsService.set_cabinet_admin_notifications_enabled(request.cabinet_admin_notifications_enabled)
+
+    # Try to persist to .env file
+    try:
+        env_file = Path(".env")
+        if env_file.exists():
+            lines = env_file.read_text().splitlines()
+            updates = {}
+
+            if request.sla_enabled is not None:
+                updates["SUPPORT_TICKET_SLA_ENABLED"] = str(request.sla_enabled).lower()
+            if request.sla_minutes is not None:
+                updates["SUPPORT_TICKET_SLA_MINUTES"] = str(request.sla_minutes)
+            if request.sla_check_interval_seconds is not None:
+                updates["SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS"] = str(request.sla_check_interval_seconds)
+            if request.sla_reminder_cooldown_minutes is not None:
+                updates["SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES"] = str(request.sla_reminder_cooldown_minutes)
+            if request.support_system_mode is not None:
+                updates["SUPPORT_SYSTEM_MODE"] = request.support_system_mode.strip().lower()
+
+            new_lines = []
+            updated_keys = set()
+
+            for line in lines:
+                updated = False
+                for key, value in updates.items():
+                    if line.startswith(f"{key}="):
+                        new_lines.append(f"{key}={value}")
+                        updated_keys.add(key)
+                        updated = True
+                        break
+                if not updated:
+                    new_lines.append(line)
+
+            # Add any keys that weren't found
+            for key, value in updates.items():
+                if key not in updated_keys:
+                    new_lines.append(f"{key}={value}")
+
+            env_file.write_text("\n".join(new_lines) + "\n")
+            logger.info(f"Updated ticket settings in .env file")
+    except Exception as e:
+        logger.warning(f"Failed to update .env file: {e}")
+
+    return TicketSettingsResponse(
+        sla_enabled=settings.SUPPORT_TICKET_SLA_ENABLED,
+        sla_minutes=settings.SUPPORT_TICKET_SLA_MINUTES,
+        sla_check_interval_seconds=settings.SUPPORT_TICKET_SLA_CHECK_INTERVAL_SECONDS,
+        sla_reminder_cooldown_minutes=settings.SUPPORT_TICKET_SLA_REMINDER_COOLDOWN_MINUTES,
+        support_system_mode=settings.get_support_system_mode(),
+        cabinet_user_notifications_enabled=SupportSettingsService.get_cabinet_user_notifications_enabled(),
+        cabinet_admin_notifications_enabled=SupportSettingsService.get_cabinet_admin_notifications_enabled(),
     )

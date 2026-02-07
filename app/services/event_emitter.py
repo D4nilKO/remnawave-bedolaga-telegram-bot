@@ -3,14 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.webhook_service import webhook_service
-
 
 logger = logging.getLogger(__name__)
 
@@ -39,24 +37,24 @@ class EventEmitter:
     def register_websocket(self, websocket: Any) -> None:
         """Зарегистрировать WebSocket подключение."""
         self._websocket_connections.add(websocket)
-        logger.debug('WebSocket connection registered. Total: %d', len(self._websocket_connections))
+        logger.debug("WebSocket connection registered. Total: %d", len(self._websocket_connections))
 
     def unregister_websocket(self, websocket: Any) -> None:
         """Отменить регистрацию WebSocket подключения."""
         self._websocket_connections.discard(websocket)
-        logger.debug('WebSocket connection unregistered. Total: %d', len(self._websocket_connections))
+        logger.debug("WebSocket connection unregistered. Total: %d", len(self._websocket_connections))
 
     async def emit(
         self,
         event_type: str,
         payload: dict[str, Any],
-        db: AsyncSession | None = None,
+        db: Optional[AsyncSession] = None,
     ) -> None:
         """Отправить событие всем подписчикам."""
         event_data = {
-            'type': event_type,
-            'payload': payload,
-            'timestamp': str(datetime.utcnow()),
+            "type": event_type,
+            "payload": payload,
+            "timestamp": str(datetime.utcnow()),
         }
 
         # Вызываем локальные слушатели
@@ -68,7 +66,7 @@ class EventEmitter:
                     else:
                         callback(event_data)
                 except Exception as error:
-                    logger.exception('Error in event listener for %s: %s', event_type, error)
+                    logger.exception("Error in event listener for %s: %s", event_type, error)
 
         # Отправляем через WebSocket
         await self._broadcast_to_websockets(event_data)
@@ -89,7 +87,7 @@ class EventEmitter:
             try:
                 await ws.send_text(message)
             except Exception as error:
-                logger.warning('Failed to send WebSocket message: %s', error)
+                logger.warning("Failed to send WebSocket message: %s", error)
                 disconnected.add(ws)
 
         # Удаляем отключенные соединения
@@ -99,3 +97,4 @@ class EventEmitter:
 
 # Глобальный экземпляр event emitter
 event_emitter = EventEmitter()
+

@@ -1,9 +1,9 @@
 """Admin settings routes for cabinet - system configuration management."""
 
 import logging
-from typing import Any
+from typing import Any, Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,51 +15,44 @@ from app.services.system_settings_service import (
 
 from ..dependencies import get_cabinet_db, get_current_admin_user
 
-
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix='/admin/settings', tags=['Admin Settings'])
+router = APIRouter(prefix="/admin/settings", tags=["Admin Settings"])
 
 
 # ============ Schemas ============
 
-
 class SettingCategoryRef(BaseModel):
     """Reference to category."""
-
     key: str
     label: str
 
 
 class SettingCategorySummary(BaseModel):
     """Category summary."""
-
     key: str
     label: str
-    description: str = ''
+    description: str = ""
     items: int
 
 
 class SettingChoice(BaseModel):
     """Choice option for setting."""
-
     value: Any
     label: str
-    description: str | None = None
+    description: Optional[str] = None
 
 
 class SettingHint(BaseModel):
     """Setting hints and guidance."""
-
-    description: str = ''
-    format: str = ''
-    example: str = ''
-    warning: str = ''
+    description: str = ""
+    format: str = ""
+    example: str = ""
+    warning: str = ""
 
 
 class SettingDefinition(BaseModel):
     """Full setting definition with current state."""
-
     key: str
     name: str
     category: SettingCategoryRef
@@ -69,18 +62,16 @@ class SettingDefinition(BaseModel):
     original: Any = Field(default=None)
     has_override: bool
     read_only: bool = Field(default=False)
-    choices: list[SettingChoice] = Field(default_factory=list)
-    hint: SettingHint | None = None
+    choices: List[SettingChoice] = Field(default_factory=list)
+    hint: Optional[SettingHint] = None
 
 
 class SettingUpdateRequest(BaseModel):
     """Request to update setting value."""
-
     value: Any
 
 
 # ============ Helper Functions ============
-
 
 def _coerce_value(key: str, value: Any) -> Any:
     """Convert and validate value for a setting."""
@@ -89,7 +80,7 @@ def _coerce_value(key: str, value: Any) -> Any:
     if value is None:
         if definition.is_optional:
             return None
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Value is required')
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Value is required")
 
     python_type = definition.python_type
 
@@ -99,14 +90,14 @@ def _coerce_value(key: str, value: Any) -> Any:
                 normalized = value
             elif isinstance(value, str):
                 lowered = value.strip().lower()
-                if lowered in {'true', '1', 'yes', 'on', 'да'}:
+                if lowered in {"true", "1", "yes", "on", "да"}:
                     normalized = True
-                elif lowered in {'false', '0', 'no', 'off', 'нет'}:
+                elif lowered in {"false", "0", "no", "off", "нет"}:
                     normalized = False
                 else:
-                    raise ValueError('invalid bool')
+                    raise ValueError("invalid bool")
             else:
-                raise ValueError('invalid bool')
+                raise ValueError("invalid bool")
 
         elif python_type is int:
             normalized = int(value)
@@ -115,16 +106,16 @@ def _coerce_value(key: str, value: Any) -> Any:
         else:
             normalized = str(value)
     except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Invalid value type') from None
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid value type") from None
 
     choices = bot_configuration_service.get_choice_options(key)
     if choices:
         allowed_values = {option.value for option in choices}
         if normalized not in allowed_values:
-            readable = ', '.join(bot_configuration_service.format_value(opt.value) for opt in choices)
+            readable = ", ".join(bot_configuration_service.format_value(opt.value) for opt in choices)
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                detail=f'Value must be one of: {readable}',
+                detail=f"Value must be one of: {readable}",
             )
 
     return normalized
@@ -136,7 +127,7 @@ def _serialize_definition(definition, include_choices: bool = True) -> SettingDe
     original = bot_configuration_service.get_original_value(definition.key)
     has_override = bot_configuration_service.has_override(definition.key)
 
-    choices: list[SettingChoice] = []
+    choices: List[SettingChoice] = []
     if include_choices:
         choices = [
             SettingChoice(
@@ -150,10 +141,10 @@ def _serialize_definition(definition, include_choices: bool = True) -> SettingDe
     # Get setting hints
     guidance = bot_configuration_service.get_setting_guidance(definition.key)
     hint = SettingHint(
-        description=guidance.get('description', ''),
-        format=guidance.get('format', ''),
-        example=guidance.get('example', ''),
-        warning=guidance.get('warning', ''),
+        description=guidance.get("description", ""),
+        format=guidance.get("format", ""),
+        example=guidance.get("example", ""),
+        warning=guidance.get("warning", ""),
     )
 
     return SettingDefinition(
@@ -176,8 +167,7 @@ def _serialize_definition(definition, include_choices: bool = True) -> SettingDe
 
 # ============ Routes ============
 
-
-@router.get('/categories', response_model=list[SettingCategorySummary])
+@router.get("/categories", response_model=List[SettingCategorySummary])
 async def list_categories(
     admin: User = Depends(get_current_admin_user),
 ):
@@ -194,13 +184,13 @@ async def list_categories(
     ]
 
 
-@router.get('', response_model=list[SettingDefinition])
+@router.get("", response_model=List[SettingDefinition])
 async def list_settings(
     admin: User = Depends(get_current_admin_user),
-    category: str | None = Query(default=None, alias='category_key'),
+    category: Optional[str] = Query(default=None, alias="category_key"),
 ):
     """Get list of all settings or settings for a specific category."""
-    items: list[SettingDefinition] = []
+    items: List[SettingDefinition] = []
 
     if category:
         definitions = bot_configuration_service.get_settings_for_category(category)
@@ -214,7 +204,7 @@ async def list_settings(
     return items
 
 
-@router.get('/{key}', response_model=SettingDefinition)
+@router.get("/{key}", response_model=SettingDefinition)
 async def get_setting(
     key: str,
     admin: User = Depends(get_current_admin_user),
@@ -223,12 +213,12 @@ async def get_setting(
     try:
         definition = bot_configuration_service.get_definition(key)
     except KeyError as error:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Setting not found') from error
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Setting not found") from error
 
     return _serialize_definition(definition)
 
 
-@router.put('/{key}', response_model=SettingDefinition)
+@router.put("/{key}", response_model=SettingDefinition)
 async def update_setting(
     key: str,
     payload: SettingUpdateRequest,
@@ -239,7 +229,7 @@ async def update_setting(
     try:
         definition = bot_configuration_service.get_definition(key)
     except KeyError as error:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Setting not found') from error
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Setting not found") from error
 
     value = _coerce_value(key, payload.value)
     try:
@@ -248,11 +238,11 @@ async def update_setting(
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(error)) from error
     await db.commit()
 
-    logger.info(f'Admin {admin.telegram_id} updated setting {key} to {value}')
+    logger.info(f"Admin {admin.telegram_id} updated setting {key} to {value}")
     return _serialize_definition(definition)
 
 
-@router.delete('/{key}', response_model=SettingDefinition)
+@router.delete("/{key}", response_model=SettingDefinition)
 async def reset_setting(
     key: str,
     admin: User = Depends(get_current_admin_user),
@@ -262,7 +252,7 @@ async def reset_setting(
     try:
         definition = bot_configuration_service.get_definition(key)
     except KeyError as error:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Setting not found') from error
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Setting not found") from error
 
     try:
         await bot_configuration_service.reset_value(db, key)
@@ -270,5 +260,5 @@ async def reset_setting(
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(error)) from error
     await db.commit()
 
-    logger.info(f'Admin {admin.telegram_id} reset setting {key}')
+    logger.info(f"Admin {admin.telegram_id} reset setting {key}")
     return _serialize_definition(definition)

@@ -1,4 +1,5 @@
 import logging
+from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,8 +25,8 @@ class FaqService:
 
     @staticmethod
     def _normalize_language(language: str) -> str:
-        base_language = language or settings.DEFAULT_LANGUAGE or 'ru'
-        return base_language.split('-')[0].lower()
+        base_language = language or settings.DEFAULT_LANGUAGE or "ru"
+        return base_language.split("-")[0].lower()
 
     @staticmethod
     def normalize_language(language: str) -> str:
@@ -38,7 +39,7 @@ class FaqService:
         language: str,
         *,
         fallback: bool = True,
-    ) -> FaqSetting | None:
+    ) -> Optional[FaqSetting]:
         lang = cls._normalize_language(language)
         setting = await get_faq_setting(db, lang)
 
@@ -87,7 +88,7 @@ class FaqService:
         *,
         include_inactive: bool = False,
         fallback: bool = True,
-    ) -> list[FaqPage]:
+    ) -> List[FaqPage]:
         lang = cls._normalize_language(language)
         pages = await get_faq_pages(db, lang, include_inactive=include_inactive)
 
@@ -128,7 +129,7 @@ class FaqService:
         *,
         fallback: bool = True,
         include_inactive: bool = False,
-    ) -> FaqPage | None:
+    ) -> Optional[FaqPage]:
         page = await get_faq_page_by_id(db, page_id)
         if not page:
             return None
@@ -155,8 +156,8 @@ class FaqService:
         language: str,
         title: str,
         content: str,
-        display_order: int | None = None,
-        is_active: bool | None = None,
+        display_order: Optional[int] = None,
+        is_active: Optional[bool] = None,
     ) -> FaqPage:
         lang = cls._normalize_language(language)
         is_active_value = True if is_active is None else bool(is_active)
@@ -181,10 +182,10 @@ class FaqService:
         db: AsyncSession,
         page: FaqPage,
         *,
-        title: str | None = None,
-        content: str | None = None,
-        display_order: int | None = None,
-        is_active: bool | None = None,
+        title: Optional[str] = None,
+        content: Optional[str] = None,
+        display_order: Optional[int] = None,
+        is_active: Optional[bool] = None,
     ) -> FaqPage:
         return await update_faq_page(
             db,
@@ -204,7 +205,7 @@ class FaqService:
         cls,
         db: AsyncSession,
         language: str,
-        pages: list[FaqPage],
+        pages: List[FaqPage],
     ) -> None:
         lang = cls._normalize_language(language)
         ordered = [page for page in pages if page.language == lang]
@@ -215,12 +216,12 @@ class FaqService:
     def split_content_into_pages(
         content: str,
         *,
-        max_length: int | None = None,
-    ) -> list[str]:
+        max_length: Optional[int] = None,
+    ) -> List[str]:
         if not content:
             return []
 
-        normalized = content.replace('\r\n', '\n').strip()
+        normalized = content.replace("\r\n", "\n").strip()
         if not normalized:
             return []
 
@@ -228,19 +229,23 @@ class FaqService:
         if len(normalized) <= limit:
             return [normalized]
 
-        paragraphs = [paragraph.strip() for paragraph in normalized.split('\n\n') if paragraph.strip()]
+        paragraphs = [
+            paragraph.strip()
+            for paragraph in normalized.split("\n\n")
+            if paragraph.strip()
+        ]
 
-        pages: list[str] = []
-        current = ''
+        pages: List[str] = []
+        current = ""
 
         def flush_current() -> None:
             nonlocal current
             if current:
                 pages.append(current.strip())
-                current = ''
+                current = ""
 
         for paragraph in paragraphs:
-            candidate = f'{current}\n\n{paragraph}'.strip() if current else paragraph
+            candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
             if len(candidate) <= limit:
                 current = candidate
                 continue
@@ -257,7 +262,7 @@ class FaqService:
                 pages.append(chunk.strip())
                 start += limit
 
-            current = ''
+            current = ""
 
         flush_current()
 
@@ -265,3 +270,4 @@ class FaqService:
             return [normalized[:limit]]
 
         return pages
+

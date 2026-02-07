@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Iterable, Sequence
+from typing import Iterable, Sequence
 
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,6 @@ from app.database.models import (
     PollQuestion,
     PollResponse,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ async def create_poll(
     await db.flush()
 
     for order, question_data in enumerate(questions, start=1):
-        question_text = question_data.get('text', '').strip()
+        question_text = question_data.get("text", "").strip()
         if not question_text:
             continue
 
@@ -50,7 +49,7 @@ async def create_poll(
         db.add(question)
         await db.flush()
 
-        for option_order, option_text in enumerate(question_data.get('options', []), start=1):
+        for option_order, option_text in enumerate(question_data.get("options", []), start=1):
             option_text = option_text.strip()
             if not option_text:
                 continue
@@ -64,7 +63,7 @@ async def create_poll(
     await db.commit()
     await db.refresh(
         poll,
-        attribute_names=['questions'],
+        attribute_names=["questions"],
     )
     return poll
 
@@ -72,7 +71,9 @@ async def create_poll(
 async def list_polls(db: AsyncSession) -> list[Poll]:
     result = await db.execute(
         select(Poll)
-        .options(selectinload(Poll.questions).options(selectinload(PollQuestion.options)))
+        .options(
+            selectinload(Poll.questions).options(selectinload(PollQuestion.options))
+        )
         .order_by(Poll.created_at.desc())
     )
     return result.scalars().all()
@@ -97,7 +98,7 @@ async def delete_poll(db: AsyncSession, poll_id: int) -> bool:
 
     await db.delete(poll)
     await db.commit()
-    logger.info('🗑️ Удалён опрос %s', poll_id)
+    logger.info("🗑️ Удалён опрос %s", poll_id)
     return True
 
 
@@ -107,7 +108,8 @@ async def create_poll_response(
     user_id: int,
 ) -> PollResponse:
     result = await db.execute(
-        select(PollResponse).where(
+        select(PollResponse)
+        .where(
             and_(
                 PollResponse.poll_id == poll_id,
                 PollResponse.user_id == user_id,
@@ -135,9 +137,8 @@ async def get_poll_response_by_id(
     result = await db.execute(
         select(PollResponse)
         .options(
-            selectinload(PollResponse.poll).options(
-                selectinload(Poll.questions).options(selectinload(PollQuestion.options))
-            ),
+            selectinload(PollResponse.poll)
+            .options(selectinload(Poll.questions).options(selectinload(PollQuestion.options))),
             selectinload(PollResponse.answers),
             selectinload(PollResponse.user),
         )
@@ -154,7 +155,8 @@ async def record_poll_answer(
     option_id: int,
 ) -> PollAnswer:
     result = await db.execute(
-        select(PollAnswer).where(
+        select(PollAnswer)
+        .where(
             and_(
                 PollAnswer.response_id == response_id,
                 PollAnswer.question_id == question_id,
@@ -180,7 +182,9 @@ async def record_poll_answer(
 
 
 async def reset_poll_answers(db: AsyncSession, response_id: int) -> None:
-    await db.execute(delete(PollAnswer).where(PollAnswer.response_id == response_id))
+    await db.execute(
+        delete(PollAnswer).where(PollAnswer.response_id == response_id)
+    )
     await db.commit()
 
 
@@ -237,27 +241,27 @@ async def get_poll_statistics(db: AsyncSession, poll_id: int) -> dict:
         question_entry = questions_map.setdefault(
             question_id,
             {
-                'id': question_id,
-                'text': question_text,
-                'order': question_order,
-                'options': [],
+                "id": question_id,
+                "text": question_text,
+                "order": question_order,
+                "options": [],
             },
         )
-        question_entry['options'].append(
+        question_entry["options"].append(
             {
-                'id': option_id,
-                'text': option_text,
-                'count': answer_count,
+                "id": option_id,
+                "text": option_text,
+                "count": answer_count,
             }
         )
 
-    questions = sorted(questions_map.values(), key=lambda item: item['order'])
+    questions = sorted(questions_map.values(), key=lambda item: item["order"])
 
     return {
-        'total_responses': total_responses,
-        'completed_responses': completed_responses,
-        'reward_sum_kopeks': reward_sum,
-        'questions': questions,
+        "total_responses": total_responses,
+        "completed_responses": completed_responses,
+        "reward_sum_kopeks": reward_sum,
+        "questions": questions,
     }
 
 

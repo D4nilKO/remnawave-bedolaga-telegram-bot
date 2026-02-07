@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import CloudPaymentsPayment
-
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +20,11 @@ async def create_cloudpayments_payment(
     user_id: int,
     invoice_id: str,
     amount_kopeks: int,
-    description: str | None = None,
-    currency: str = 'RUB',
-    payment_url: str | None = None,
-    email: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    description: Optional[str] = None,
+    currency: str = "RUB",
+    payment_url: Optional[str] = None,
+    email: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
     test_mode: bool = False,
 ) -> CloudPaymentsPayment:
     """
@@ -52,7 +51,7 @@ async def create_cloudpayments_payment(
         amount_kopeks=amount_kopeks,
         currency=currency,
         description=description,
-        status='pending',
+        status="pending",
         is_paid=False,
         payment_url=payment_url,
         email=email,
@@ -65,7 +64,7 @@ async def create_cloudpayments_payment(
     await db.refresh(payment)
 
     logger.debug(
-        'Created CloudPayments payment: id=%s, invoice=%s, amount=%s',
+        "Created CloudPayments payment: id=%s, invoice=%s, amount=%s",
         payment.id,
         invoice_id,
         amount_kopeks,
@@ -77,28 +76,36 @@ async def create_cloudpayments_payment(
 async def get_cloudpayments_payment_by_invoice_id(
     db: AsyncSession,
     invoice_id: str,
-) -> CloudPaymentsPayment | None:
+) -> Optional[CloudPaymentsPayment]:
     """Get CloudPayments payment by invoice ID."""
-    result = await db.execute(select(CloudPaymentsPayment).where(CloudPaymentsPayment.invoice_id == invoice_id))
+    result = await db.execute(
+        select(CloudPaymentsPayment).where(
+            CloudPaymentsPayment.invoice_id == invoice_id
+        )
+    )
     return result.scalars().first()
 
 
 async def get_cloudpayments_payment_by_id(
     db: AsyncSession,
     payment_id: int,
-) -> CloudPaymentsPayment | None:
+) -> Optional[CloudPaymentsPayment]:
     """Get CloudPayments payment by internal ID."""
-    result = await db.execute(select(CloudPaymentsPayment).where(CloudPaymentsPayment.id == payment_id))
+    result = await db.execute(
+        select(CloudPaymentsPayment).where(CloudPaymentsPayment.id == payment_id)
+    )
     return result.scalars().first()
 
 
 async def get_cloudpayments_payment_by_transaction_id(
     db: AsyncSession,
     transaction_id_cp: int,
-) -> CloudPaymentsPayment | None:
+) -> Optional[CloudPaymentsPayment]:
     """Get CloudPayments payment by CloudPayments transaction ID."""
     result = await db.execute(
-        select(CloudPaymentsPayment).where(CloudPaymentsPayment.transaction_id_cp == transaction_id_cp)
+        select(CloudPaymentsPayment).where(
+            CloudPaymentsPayment.transaction_id_cp == transaction_id_cp
+        )
     )
     return result.scalars().first()
 
@@ -107,7 +114,7 @@ async def update_cloudpayments_payment(
     db: AsyncSession,
     payment_id: int,
     **kwargs: Any,
-) -> CloudPaymentsPayment | None:
+) -> Optional[CloudPaymentsPayment]:
     """
     Update CloudPayments payment record.
 
@@ -138,15 +145,15 @@ async def mark_cloudpayments_payment_as_paid(
     db: AsyncSession,
     payment_id: int,
     *,
-    transaction_id_cp: int | None = None,
-    token: str | None = None,
-    card_first_six: str | None = None,
-    card_last_four: str | None = None,
-    card_type: str | None = None,
-    card_exp_date: str | None = None,
-    email: str | None = None,
-    callback_payload: dict[str, Any] | None = None,
-) -> CloudPaymentsPayment | None:
+    transaction_id_cp: Optional[int] = None,
+    token: Optional[str] = None,
+    card_first_six: Optional[str] = None,
+    card_last_four: Optional[str] = None,
+    card_type: Optional[str] = None,
+    card_exp_date: Optional[str] = None,
+    email: Optional[str] = None,
+    callback_payload: Optional[Dict[str, Any]] = None,
+) -> Optional[CloudPaymentsPayment]:
     """
     Mark CloudPayments payment as paid.
 
@@ -169,7 +176,7 @@ async def mark_cloudpayments_payment_as_paid(
     if not payment:
         return None
 
-    payment.status = 'completed'
+    payment.status = "completed"
     payment.is_paid = True
     payment.paid_at = datetime.utcnow()
 
@@ -195,7 +202,7 @@ async def mark_cloudpayments_payment_as_paid(
     await db.refresh(payment)
 
     logger.info(
-        'Marked CloudPayments payment as paid: id=%s, invoice=%s',
+        "Marked CloudPayments payment as paid: id=%s, invoice=%s",
         payment.id,
         payment.invoice_id,
     )
@@ -207,7 +214,7 @@ async def link_cloudpayments_payment_to_transaction(
     db: AsyncSession,
     payment_id: int,
     transaction_id: int,
-) -> CloudPaymentsPayment | None:
+) -> Optional[CloudPaymentsPayment]:
     """Link CloudPayments payment to internal transaction."""
     payment = await get_cloudpayments_payment_by_id(db, payment_id)
     if not payment:

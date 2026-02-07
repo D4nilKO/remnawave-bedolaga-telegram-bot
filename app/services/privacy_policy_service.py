@@ -1,4 +1,5 @@
 import logging
+from typing import Optional, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +11,6 @@ from app.database.crud.privacy_policy import (
 )
 from app.database.models import PrivacyPolicy
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -21,8 +21,8 @@ class PrivacyPolicyService:
 
     @staticmethod
     def _normalize_language(language: str) -> str:
-        base_language = language or settings.DEFAULT_LANGUAGE or 'ru'
-        return base_language.split('-')[0].lower()
+        base_language = language or settings.DEFAULT_LANGUAGE or "ru"
+        return base_language.split("-")[0].lower()
 
     @staticmethod
     def normalize_language(language: str) -> str:
@@ -35,7 +35,7 @@ class PrivacyPolicyService:
         language: str,
         *,
         fallback: bool = False,
-    ) -> PrivacyPolicy | None:
+    ) -> Optional[PrivacyPolicy]:
         lang = cls._normalize_language(language)
         policy = await get_privacy_policy(db, lang)
 
@@ -53,7 +53,7 @@ class PrivacyPolicyService:
         cls,
         db: AsyncSession,
         language: str,
-    ) -> PrivacyPolicy | None:
+    ) -> Optional[PrivacyPolicy]:
         lang = cls._normalize_language(language)
         policy = await get_privacy_policy(db, lang)
 
@@ -88,7 +88,7 @@ class PrivacyPolicyService:
             content,
             enable_if_new=enable_if_new,
         )
-        logger.info('✅ Политика конфиденциальности обновлена для языка %s', lang)
+        logger.info("✅ Политика конфиденциальности обновлена для языка %s", lang)
         return policy
 
     @classmethod
@@ -122,11 +122,11 @@ class PrivacyPolicyService:
         content: str,
         *,
         max_length: int = None,
-    ) -> list[str]:
+    ) -> List[str]:
         if not content:
             return []
 
-        normalized = content.replace('\r\n', '\n').strip()
+        normalized = content.replace("\r\n", "\n").strip()
         if not normalized:
             return []
 
@@ -135,19 +135,23 @@ class PrivacyPolicyService:
         if len(normalized) <= max_len:
             return [normalized]
 
-        paragraphs = [paragraph.strip() for paragraph in normalized.split('\n\n') if paragraph.strip()]
+        paragraphs = [
+            paragraph.strip()
+            for paragraph in normalized.split("\n\n")
+            if paragraph.strip()
+        ]
 
-        pages: list[str] = []
-        current = ''
+        pages: List[str] = []
+        current = ""
 
         def flush_current() -> None:
             nonlocal current
             if current:
                 pages.append(current.strip())
-                current = ''
+                current = ""
 
         for paragraph in paragraphs:
-            candidate = f'{current}\n\n{paragraph}'.strip() if current else paragraph
+            candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
             if len(candidate) <= max_len:
                 current = candidate
                 continue
@@ -160,11 +164,11 @@ class PrivacyPolicyService:
 
             start_index = 0
             while start_index < len(paragraph):
-                chunk = paragraph[start_index : start_index + max_len]
+                chunk = paragraph[start_index:start_index + max_len]
                 pages.append(chunk.strip())
                 start_index += max_len
 
-            current = ''
+            current = ""
 
         flush_current()
 

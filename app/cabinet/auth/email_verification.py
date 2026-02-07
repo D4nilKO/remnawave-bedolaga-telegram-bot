@@ -2,29 +2,9 @@
 
 import secrets
 from datetime import datetime, timedelta
+from typing import Optional
 
 from app.config import settings
-
-
-def generate_email_change_code() -> str:
-    """
-    Generate a 6-digit verification code for email change.
-
-    Returns:
-        6-digit numeric string
-    """
-    return str(secrets.randbelow(900000) + 100000)
-
-
-def get_email_change_expires_at() -> datetime:
-    """
-    Get the expiration datetime for an email change code.
-
-    Returns:
-        Datetime when the email change code expires
-    """
-    minutes = settings.get_cabinet_email_change_code_expire_minutes()
-    return datetime.utcnow() + timedelta(minutes=minutes)
 
 
 def generate_verification_token() -> str:
@@ -69,7 +49,7 @@ def get_password_reset_expires_at() -> datetime:
     return datetime.utcnow() + timedelta(hours=hours)
 
 
-def is_token_expired(expires_at: datetime | None) -> bool:
+def is_token_expired(expires_at: Optional[datetime]) -> bool:
     """
     Check if a token has expired.
 

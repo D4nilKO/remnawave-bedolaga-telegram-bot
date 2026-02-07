@@ -1,3 +1,5 @@
+from typing import Optional
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,10 +9,12 @@ from app.database.models import SystemSetting
 async def upsert_system_setting(
     db: AsyncSession,
     key: str,
-    value: str | None,
-    description: str | None = None,
+    value: Optional[str],
+    description: Optional[str] = None,
 ) -> SystemSetting:
-    result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == key)
+    )
     setting = result.scalar_one_or_none()
 
     if setting is None:
@@ -26,8 +30,11 @@ async def upsert_system_setting(
 
 
 async def delete_system_setting(db: AsyncSession, key: str) -> None:
-    result = await db.execute(select(SystemSetting).where(SystemSetting.key == key))
+    result = await db.execute(
+        select(SystemSetting).where(SystemSetting.key == key)
+    )
     setting = result.scalar_one_or_none()
     if setting is not None:
         await db.delete(setting)
         await db.flush()
+

@@ -1,9 +1,8 @@
 """CRUD операции для токенов административного веб-API."""
-
 from __future__ import annotations
 
-from collections.abc import Iterable
 from datetime import datetime
+from typing import Iterable, List, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,7 @@ async def list_tokens(
     db: AsyncSession,
     *,
     include_inactive: bool = False,
-) -> list[WebApiToken]:
+) -> List[WebApiToken]:
     query = select(WebApiToken)
 
     if not include_inactive:
@@ -27,12 +26,14 @@ async def list_tokens(
     return list(result.scalars().all())
 
 
-async def get_token_by_id(db: AsyncSession, token_id: int) -> WebApiToken | None:
+async def get_token_by_id(db: AsyncSession, token_id: int) -> Optional[WebApiToken]:
     return await db.get(WebApiToken, token_id)
 
 
-async def get_token_by_hash(db: AsyncSession, token_hash: str) -> WebApiToken | None:
-    query = select(WebApiToken).where(WebApiToken.token_hash == token_hash)
+async def get_token_by_hash(db: AsyncSession, token_hash: str) -> Optional[WebApiToken]:
+    query = select(WebApiToken).where(
+        WebApiToken.token_hash == token_hash
+    )
     result = await db.execute(query)
     return result.scalar_one_or_none()
 
@@ -43,9 +44,9 @@ async def create_token(
     name: str,
     token_hash: str,
     token_prefix: str,
-    description: str | None = None,
-    expires_at: datetime | None = None,
-    created_by: str | None = None,
+    description: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
+    created_by: Optional[str] = None,
 ) -> WebApiToken:
     token = WebApiToken(
         name=name,
@@ -95,11 +96,11 @@ async def delete_token(db: AsyncSession, token: WebApiToken) -> None:
 
 
 __all__ = [
-    'create_token',
-    'delete_token',
-    'get_token_by_hash',
-    'get_token_by_id',
-    'list_tokens',
-    'set_tokens_active_status',
-    'update_token',
+    "list_tokens",
+    "get_token_by_id",
+    "get_token_by_hash",
+    "create_token",
+    "update_token",
+    "set_tokens_active_status",
+    "delete_token",
 ]

@@ -1,13 +1,12 @@
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database.models import HeleketPayment
-
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +20,13 @@ async def create_heleket_payment(
     amount: str,
     currency: str,
     status: str,
-    payer_amount: str | None = None,
-    payer_currency: str | None = None,
-    exchange_rate: float | None = None,
-    discount_percent: int | None = None,
-    payment_url: str | None = None,
-    expires_at: datetime | None = None,
-    metadata: dict[str, Any] | None = None,
+    payer_amount: Optional[str] = None,
+    payer_currency: Optional[str] = None,
+    exchange_rate: Optional[float] = None,
+    discount_percent: Optional[int] = None,
+    payment_url: Optional[str] = None,
+    expires_at: Optional[datetime] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> HeleketPayment:
     payment = HeleketPayment(
         user_id=user_id,
@@ -50,7 +49,7 @@ async def create_heleket_payment(
     await db.refresh(payment)
 
     logger.info(
-        'Создан Heleket платеж: uuid=%s order_id=%s amount=%s %s для пользователя %s',
+        "Создан Heleket платеж: uuid=%s order_id=%s amount=%s %s для пользователя %s",
         uuid,
         order_id,
         amount,
@@ -64,9 +63,11 @@ async def create_heleket_payment(
 async def get_heleket_payment_by_uuid(
     db: AsyncSession,
     uuid: str,
-) -> HeleketPayment | None:
+) -> Optional[HeleketPayment]:
     result = await db.execute(
-        select(HeleketPayment).options(selectinload(HeleketPayment.user)).where(HeleketPayment.uuid == uuid)
+        select(HeleketPayment)
+        .options(selectinload(HeleketPayment.user))
+        .where(HeleketPayment.uuid == uuid)
     )
     return result.scalar_one_or_none()
 
@@ -74,9 +75,11 @@ async def get_heleket_payment_by_uuid(
 async def get_heleket_payment_by_order_id(
     db: AsyncSession,
     order_id: str,
-) -> HeleketPayment | None:
+) -> Optional[HeleketPayment]:
     result = await db.execute(
-        select(HeleketPayment).options(selectinload(HeleketPayment.user)).where(HeleketPayment.order_id == order_id)
+        select(HeleketPayment)
+        .options(selectinload(HeleketPayment.user))
+        .where(HeleketPayment.order_id == order_id)
     )
     return result.scalar_one_or_none()
 
@@ -84,9 +87,11 @@ async def get_heleket_payment_by_order_id(
 async def get_heleket_payment_by_id(
     db: AsyncSession,
     payment_id: int,
-) -> HeleketPayment | None:
+) -> Optional[HeleketPayment]:
     result = await db.execute(
-        select(HeleketPayment).options(selectinload(HeleketPayment.user)).where(HeleketPayment.id == payment_id)
+        select(HeleketPayment)
+        .options(selectinload(HeleketPayment.user))
+        .where(HeleketPayment.id == payment_id)
     )
     return result.scalar_one_or_none()
 
@@ -95,19 +100,19 @@ async def update_heleket_payment(
     db: AsyncSession,
     uuid: str,
     *,
-    status: str | None = None,
-    payer_amount: str | None = None,
-    payer_currency: str | None = None,
-    exchange_rate: float | None = None,
-    discount_percent: int | None = None,
-    paid_at: datetime | None = None,
-    payment_url: str | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> HeleketPayment | None:
+    status: Optional[str] = None,
+    payer_amount: Optional[str] = None,
+    payer_currency: Optional[str] = None,
+    exchange_rate: Optional[float] = None,
+    discount_percent: Optional[int] = None,
+    paid_at: Optional[datetime] = None,
+    payment_url: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Optional[HeleketPayment]:
     payment = await get_heleket_payment_by_uuid(db, uuid)
 
     if not payment:
-        logger.error('Heleket платеж с uuid=%s не найден', uuid)
+        logger.error("Heleket платеж с uuid=%s не найден", uuid)
         return None
 
     if status is not None:
@@ -135,7 +140,7 @@ async def update_heleket_payment(
     await db.refresh(payment)
 
     logger.info(
-        'Обновлен Heleket платеж %s: статус=%s payer_amount=%s %s',
+        "Обновлен Heleket платеж %s: статус=%s payer_amount=%s %s",
         uuid,
         payment.status,
         payment.payer_amount,
@@ -149,11 +154,11 @@ async def link_heleket_payment_to_transaction(
     db: AsyncSession,
     uuid: str,
     transaction_id: int,
-) -> HeleketPayment | None:
+) -> Optional[HeleketPayment]:
     payment = await get_heleket_payment_by_uuid(db, uuid)
 
     if not payment:
-        logger.error('Не найден Heleket платеж для связи с транзакцией: %s', uuid)
+        logger.error("Не найден Heleket платеж для связи с транзакцией: %s", uuid)
         return None
 
     payment.transaction_id = transaction_id
@@ -163,7 +168,7 @@ async def link_heleket_payment_to_transaction(
     await db.refresh(payment)
 
     logger.info(
-        'Heleket платеж %s связан с транзакцией %s',
+        "Heleket платеж %s связан с транзакцией %s",
         uuid,
         transaction_id,
     )
