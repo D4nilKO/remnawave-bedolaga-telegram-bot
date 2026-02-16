@@ -1,9 +1,9 @@
 import asyncio
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import structlog
 from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
 from sqlalchemy import and_, or_, select
@@ -57,7 +57,6 @@ from app.services.notification_delivery_service import (
     notification_delivery_service,
 )
 from app.services.notification_settings_service import NotificationSettingsService
-from app.services.payment_service import PaymentService
 from app.services.promo_offer_service import promo_offer_service
 from app.services.subscription_service import SubscriptionService
 from app.utils.cache import cache
@@ -73,7 +72,7 @@ from app.utils.timezone import format_local_datetime
 AUTOPAY_INSUFFICIENT_BALANCE_COOLDOWN_SECONDS: int = 21600
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 LOGO_PATH = Path(settings.LOGO_FILE)
@@ -83,7 +82,6 @@ class MonitoringService:
     def __init__(self, bot=None):
         self.is_running = False
         self.subscription_service = SubscriptionService()
-        self.payment_service = PaymentService()
         self.bot = bot
         self._notified_users: set[str] = set()
         self._last_cleanup = datetime.utcnow()
@@ -120,9 +118,9 @@ class MonitoringService:
                 return result
             except TelegramBadRequest as exc:
                 logger.warning(
-                    'Не удалось отправить сообщение с логотипом пользователю %s: %s. Отправляем текстовое сообщение.',
-                    chat_id,
-                    exc,
+                    'Не удалось отправить сообщение с логотипом пользователю : . Отправляем текстовое сообщение.',
+                    chat_id=chat_id,
+                    exc=exc,
                 )
 
         return await self.bot.send_message(
@@ -149,19 +147,12 @@ class MonitoringService:
     def _handle_unreachable_user(self, user: User, error: Exception, context: str) -> bool:
         if isinstance(error, TelegramForbiddenError):
             logger.warning(
-                '⚠️ Пользователь %s недоступен (%s): бот заблокирован',
-                user.telegram_id,
-                context,
+                '⚠️ Пользователь недоступен : бот заблокирован', telegram_id=user.telegram_id, context=context
             )
             return True
 
         if isinstance(error, TelegramBadRequest) and self._is_unreachable_error(error):
-            logger.warning(
-                '⚠️ Пользователь %s недоступен (%s): %s',
-                user.telegram_id,
-                context,
-                error,
-            )
+            logger.warning('⚠️ Пользователь недоступен', telegram_id=user.telegram_id, context=context, error=error)
             return True
 
         return False
@@ -178,7 +169,7 @@ class MonitoringService:
             if not self._sla_task or self._sla_task.done():
                 self._sla_task = asyncio.create_task(self._sla_loop())
         except Exception as e:
-            logger.error(f'Не удалось запустить SLA-мониторинг: {e}')
+            logger.error('Не удалось запустить SLA-мониторинг', error=e)
 
         while self.is_running:
             try:
@@ -186,7 +177,7 @@ class MonitoringService:
                 await asyncio.sleep(settings.MONITORING_INTERVAL * 60)
 
             except Exception as e:
-                logger.error(f'Ошибка в цикле мониторинга: {e}')
+                logger.error('Ошибка в цикле мониторинга', error=e)
                 await asyncio.sleep(60)
 
     def stop_monitoring(self):
@@ -205,23 +196,24 @@ class MonitoringService:
 
                 expired_offers = await deactivate_expired_offers(db)
                 if expired_offers:
-                    logger.info(f'🧹 Деактивировано {expired_offers} просроченных скидочных предложений')
+                    logger.info('🧹 Деактивировано просроченных скидочных предложений', expired_offers=expired_offers)
 
                 expired_active_discounts = await cleanup_expired_promo_offer_discounts(db)
                 if expired_active_discounts:
                     logger.info(
-                        '🧹 Сброшено %s активных скидок промо-предложений с истекшим сроком',
-                        expired_active_discounts,
+                        '🧹 Сброшено активных скидок промо-предложений с истекшим сроком',
+                        expired_active_discounts=expired_active_discounts,
                     )
 
                 cleaned_test_access = await promo_offer_service.cleanup_expired_test_access(db)
                 if cleaned_test_access:
-                    logger.info(f'🧹 Отозвано {cleaned_test_access} истекших тестовых доступов к сквадам')
+                    logger.info(
+                        '🧹 Отозвано истекших тестовых доступов к сквадам', cleaned_test_access=cleaned_test_access
+                    )
 
                 await self._check_expired_subscriptions(db)
                 await self._check_expiring_subscriptions(db)
                 await self._check_trial_expiring_soon(db)
-                await self._check_trial_inactivity_notifications(db)
                 await self._check_trial_channel_subscriptions(db)
                 await self._check_expired_subscription_followups(db)
                 if settings.ENABLE_AUTOPAY:
@@ -238,7 +230,7 @@ class MonitoringService:
                 await db.commit()
 
             except Exception as e:
-                logger.error(f'Ошибка в цикле мониторинга: {e}')
+                logger.error('Ошибка в цикле мониторинга', error=e)
                 try:
                     await self._log_monitoring_event(
                         db,
@@ -258,7 +250,7 @@ class MonitoringService:
             old_count = len(self._notified_users)
             self._notified_users.clear()
             self._last_cleanup = current_time
-            logger.info(f'🧹 Очищен кеш уведомлений ({old_count} записей)')
+            logger.info('🧹 Очищен кеш уведомлений ( записей)', old_count=old_count)
 
     async def _check_expired_subscriptions(self, db: AsyncSession):
         try:
@@ -269,8 +261,7 @@ class MonitoringService:
             for subscription in expired_subscriptions:
                 if is_recently_updated_by_webhook(subscription):
                     logger.debug(
-                        'Пропуск expire подписки %s: обновлена вебхуком недавно',
-                        subscription.id,
+                        'Пропуск expire подписки : обновлена вебхуком недавно', subscription_id=subscription.id
                     )
                     continue
 
@@ -282,7 +273,9 @@ class MonitoringService:
                 if user and self.bot:
                     await self._send_subscription_expired_notification(user)
 
-                logger.info(f"🔴 Подписка пользователя {subscription.user_id} истекла и статус изменен на 'expired'")
+                logger.info(
+                    "🔴 Подписка пользователя истекла и статус изменен на 'expired'", user_id=subscription.user_id
+                )
 
             if expired_subscriptions:
                 await self._log_monitoring_event(
@@ -293,7 +286,7 @@ class MonitoringService:
                 )
 
         except Exception as e:
-            logger.error(f'Ошибка проверки истёкших подписок: {e}')
+            logger.error('Ошибка проверки истёкших подписок', error=e)
 
     async def update_remnawave_user(self, db: AsyncSession, subscription: Subscription) -> RemnaWaveUser | None:
         try:
@@ -301,14 +294,14 @@ class MonitoringService:
 
             if is_recently_updated_by_webhook(subscription):
                 logger.debug(
-                    'Пропуск RemnaWave обновления подписки %s: обновлена вебхуком недавно',
-                    subscription.id,
+                    'Пропуск RemnaWave обновления подписки : обновлена вебхуком недавно',
+                    subscription_id=subscription.id,
                 )
                 return None
 
             user = await get_user_by_id(db, subscription.user_id)
             if not user or not user.remnawave_uuid:
-                logger.error(f'RemnaWave UUID не найден для пользователя {subscription.user_id}')
+                logger.error('RemnaWave UUID не найден для пользователя', user_id=subscription.user_id)
                 return None
 
             # Обновляем subscription в сессии, чтобы избежать detached instance
@@ -320,8 +313,8 @@ class MonitoringService:
             # Re-check guard after refresh (webhook could have committed between first check and refresh)
             if is_recently_updated_by_webhook(subscription):
                 logger.debug(
-                    'Пропуск RemnaWave обновления подписки %s: обновлена вебхуком недавно (после refresh)',
-                    subscription.id,
+                    'Пропуск RemnaWave обновления подписки : обновлена вебхуком недавно (после refresh)',
+                    subscription_id=subscription.id,
                 )
                 return None
 
@@ -332,12 +325,11 @@ class MonitoringService:
                 subscription.status = SubscriptionStatus.EXPIRED.value
                 await db.commit()
                 is_active = False
-                logger.info(f"📝 Статус подписки {subscription.id} обновлен на 'expired'")
+                logger.info("📝 Статус подписки обновлен на 'expired'", subscription_id=subscription.id)
 
             if not self.subscription_service.is_configured:
                 logger.warning(
-                    'RemnaWave API не настроен. Пропускаем обновление пользователя %s',
-                    subscription.user_id,
+                    'RemnaWave API не настроен. Пропускаем обновление пользователя', user_id=subscription.user_id
                 )
                 return None
 
@@ -366,14 +358,18 @@ class MonitoringService:
                 await db.commit()
 
                 status_text = 'активным' if is_active else 'истёкшим'
-                logger.info(f'✅ Обновлен RemnaWave пользователь {user.remnawave_uuid} со статусом {status_text}')
+                logger.info(
+                    '✅ Обновлен RemnaWave пользователь со статусом',
+                    remnawave_uuid=user.remnawave_uuid,
+                    status_text=status_text,
+                )
                 return updated_user
 
         except RemnaWaveAPIError as e:
-            logger.error(f'Ошибка обновления RemnaWave пользователя: {e}')
+            logger.error('Ошибка обновления RemnaWave пользователя', error=e)
             return None
         except Exception as e:
-            logger.error(f'Ошибка обновления RemnaWave пользователя: {e}')
+            logger.error('Ошибка обновления RemnaWave пользователя', error=e)
             return None
 
     async def _check_expiring_subscriptions(self, db: AsyncSession):
@@ -398,7 +394,11 @@ class MonitoringService:
                         await notification_sent(db, user.id, subscription.id, 'expiring', days)
                         or user_key in all_processed_users
                     ):
-                        logger.debug(f'🔄 Пропускаем дублирование для пользователя {user_identifier} на {days} дней')
+                        logger.debug(
+                            '🔄 Пропускаем дублирование для пользователя на дней',
+                            user_identifier=user_identifier,
+                            days=days,
+                        )
                         continue
 
                     should_send = True
@@ -408,7 +408,10 @@ class MonitoringService:
                             if any(s.user_id == user.id for s in other_subs):
                                 should_send = False
                                 logger.debug(
-                                    f'🎯 Пропускаем уведомление на {days} дней для пользователя {user_identifier}, есть более срочное на {other_days} дней'
+                                    '🎯 Пропускаем уведомление на дней для пользователя есть более срочное на дней',
+                                    days=days,
+                                    user_identifier=user_identifier,
+                                    other_days=other_days,
                                 )
                                 break
 
@@ -427,7 +430,9 @@ class MonitoringService:
                             all_processed_users.add(user_key)
                             sent_count += 1
                             logger.info(
-                                f'✅ Email-пользователю {user.id} отправлено уведомление об истечении подписки через {days} дней'
+                                '✅ Email-пользователю отправлено уведомление об истечении подписки через дней',
+                                user_id=user.id,
+                                days=days,
                             )
                         continue
 
@@ -438,10 +443,14 @@ class MonitoringService:
                             all_processed_users.add(user_key)
                             sent_count += 1
                             logger.info(
-                                f'✅ Пользователю {user.telegram_id} отправлено уведомление об истечении подписки через {days} дней'
+                                '✅ Пользователю отправлено уведомление об истечении подписки через дней',
+                                telegram_id=user.telegram_id,
+                                days=days,
                             )
                         else:
-                            logger.warning(f'❌ Не удалось отправить уведомление пользователю {user.telegram_id}')
+                            logger.warning(
+                                '❌ Не удалось отправить уведомление пользователю', telegram_id=user.telegram_id
+                            )
 
                 if sent_count > 0:
                     await self._log_monitoring_event(
@@ -452,7 +461,7 @@ class MonitoringService:
                     )
 
         except Exception as e:
-            logger.error(f'Ошибка проверки истекающих подписок: {e}')
+            logger.error('Ошибка проверки истекающих подписок', error=e)
 
     async def _check_trial_expiring_soon(self, db: AsyncSession):
         try:
@@ -490,7 +499,8 @@ class MonitoringService:
                     if success:
                         await record_notification(db, user.id, subscription.id, 'trial_2h')
                         logger.info(
-                            f'🎁 Пользователю {user.telegram_id} отправлено уведомление об окончании тестовой подписки через 2 часа'
+                            '🎁 Пользователю отправлено уведомление об окончании тестовой подписки через 2 часа',
+                            telegram_id=user.telegram_id,
                         )
 
             if trial_expiring:
@@ -502,78 +512,7 @@ class MonitoringService:
                 )
 
         except Exception as e:
-            logger.error(f'Ошибка проверки истекающих тестовых подписок: {e}')
-
-    async def _check_trial_inactivity_notifications(self, db: AsyncSession):
-        if not NotificationSettingsService.are_notifications_globally_enabled():
-            return
-        if not self.bot:
-            return
-
-        try:
-            now = datetime.utcnow()
-            one_hour_ago = now - timedelta(hours=1)
-
-            result = await db.execute(
-                select(Subscription)
-                .options(selectinload(Subscription.user))
-                .where(
-                    and_(
-                        Subscription.status == SubscriptionStatus.ACTIVE.value,
-                        Subscription.is_trial == True,
-                        Subscription.start_date.isnot(None),
-                        Subscription.start_date <= one_hour_ago,
-                        Subscription.end_date > now,
-                    )
-                )
-            )
-
-            subscriptions = result.scalars().all()
-            sent_1h = 0
-            sent_24h = 0
-
-            for subscription in subscriptions:
-                user = subscription.user
-                if not user:
-                    continue
-
-                if (subscription.traffic_used_gb or 0) > 0:
-                    continue
-
-                start_date = subscription.start_date
-                if not start_date:
-                    continue
-
-                time_since_start = now - start_date
-
-                if NotificationSettingsService.is_trial_inactive_1h_enabled() and timedelta(
-                    hours=1
-                ) <= time_since_start < timedelta(hours=24):
-                    if not await notification_sent(db, user.id, subscription.id, 'trial_inactive_1h'):
-                        success = await self._send_trial_inactive_notification(user, subscription, 1)
-                        if success:
-                            await record_notification(db, user.id, subscription.id, 'trial_inactive_1h')
-                            sent_1h += 1
-
-                if NotificationSettingsService.is_trial_inactive_24h_enabled() and time_since_start >= timedelta(
-                    hours=24
-                ):
-                    if not await notification_sent(db, user.id, subscription.id, 'trial_inactive_24h'):
-                        success = await self._send_trial_inactive_notification(user, subscription, 24)
-                        if success:
-                            await record_notification(db, user.id, subscription.id, 'trial_inactive_24h')
-                            sent_24h += 1
-
-            if sent_1h or sent_24h:
-                await self._log_monitoring_event(
-                    db,
-                    'trial_inactivity_notifications',
-                    f'Отправлено {sent_1h} уведомлений спустя 1 час и {sent_24h} спустя 24 часа',
-                    {'sent_1h': sent_1h, 'sent_24h': sent_24h},
-                )
-
-        except Exception as e:
-            logger.error(f'Ошибка проверки неактивных тестовых подписок: {e}')
+            logger.error('Ошибка проверки истекающих тестовых подписок', error=e)
 
     async def _check_trial_channel_subscriptions(self, db: AsyncSession):
         from app.database.crud.subscription import is_recently_updated_by_webhook
@@ -641,41 +580,41 @@ class MonitoringService:
                     )
                 except TelegramForbiddenError as error:
                     logger.error(
-                        '❌ Не удалось проверить подписку пользователя %s на канал %s: бот заблокирован (%s)',
-                        user.telegram_id,
-                        channel_id,
-                        error,
+                        '❌ Не удалось проверить подписку пользователя на канал : бот заблокирован',
+                        telegram_id=user.telegram_id,
+                        channel_id=channel_id,
+                        error=error,
                     )
                     continue
                 except TelegramBadRequest as error:
                     # PARTICIPANT_ID_INVALID - пользователь никогда не был в канале, это нормально
                     logger.warning(
-                        '⚠️ Ошибка Telegram при проверке подписки пользователя %s: %s',
-                        user.telegram_id,
-                        error,
+                        '⚠️ Ошибка Telegram при проверке подписки пользователя',
+                        telegram_id=user.telegram_id,
+                        error=error,
                     )
                     continue
                 except Exception as error:
                     logger.error(
-                        '❌ Неожиданная ошибка при проверке подписки пользователя %s: %s',
-                        user.telegram_id,
-                        error,
+                        '❌ Неожиданная ошибка при проверке подписки пользователя',
+                        telegram_id=user.telegram_id,
+                        error=error,
                     )
                     continue
 
                 if subscription.status == SubscriptionStatus.ACTIVE.value and subscription.is_trial and not is_member:
                     if is_recently_updated_by_webhook(subscription):
                         logger.debug(
-                            'Пропуск деактивации trial подписки %s: обновлена вебхуком недавно',
-                            subscription.id,
+                            'Пропуск деактивации trial подписки : обновлена вебхуком недавно',
+                            subscription_id=subscription.id,
                         )
                         continue
                     subscription = await deactivate_subscription(db, subscription)
                     disabled_count += 1
                     logger.info(
-                        '🚫 Триальная подписка пользователя %s (ID %s) отключена из-за отписки от канала',
-                        user.telegram_id,
-                        subscription.id,
+                        '🚫 Триальная подписка пользователя (ID) отключена из-за отписки от канала',
+                        telegram_id=user.telegram_id,
+                        subscription_id=subscription.id,
                     )
 
                     if user.remnawave_uuid:
@@ -683,9 +622,9 @@ class MonitoringService:
                             await self.subscription_service.disable_remnawave_user(user.remnawave_uuid)
                         except Exception as api_error:
                             logger.error(
-                                '❌ Не удалось отключить пользователя RemnaWave %s: %s',
-                                user.remnawave_uuid,
-                                api_error,
+                                '❌ Не удалось отключить пользователя RemnaWave',
+                                remnawave_uuid=user.remnawave_uuid,
+                                api_error=api_error,
                             )
 
                     if notifications_allowed:
@@ -706,8 +645,8 @@ class MonitoringService:
                 elif subscription.status == SubscriptionStatus.DISABLED.value and subscription.is_trial and is_member:
                     if is_recently_updated_by_webhook(subscription):
                         logger.debug(
-                            'Пропуск реактивации trial подписки %s: обновлена вебхуком недавно',
-                            subscription.id,
+                            'Пропуск реактивации trial подписки : обновлена вебхуком недавно',
+                            subscription_id=subscription.id,
                         )
                         continue
                     subscription.status = SubscriptionStatus.ACTIVE.value
@@ -717,9 +656,9 @@ class MonitoringService:
                     restored_count += 1
 
                     logger.info(
-                        '✅ Триальная подписка пользователя %s (ID %s) восстановлена после повторной подписки на канал',
-                        user.telegram_id,
-                        subscription.id,
+                        '✅ Триальная подписка пользователя (ID) восстановлена после повторной подписки на канал',
+                        telegram_id=user.telegram_id,
+                        subscription_id=subscription.id,
                     )
 
                     try:
@@ -729,9 +668,9 @@ class MonitoringService:
                             await self.subscription_service.create_remnawave_user(db, subscription)
                     except Exception as api_error:
                         logger.error(
-                            '❌ Не удалось обновить RemnaWave пользователя %s: %s',
-                            user.telegram_id,
-                            api_error,
+                            '❌ Не удалось обновить RemnaWave пользователя',
+                            telegram_id=user.telegram_id,
+                            api_error=api_error,
                         )
 
                     await clear_notification_by_type(
@@ -756,7 +695,7 @@ class MonitoringService:
                 )
 
         except Exception as error:
-            logger.error(f'Ошибка проверки подписки на канал для триальных пользователей: {error}')
+            logger.error('Ошибка проверки подписки на канал для триальных пользователей', error=error)
 
     async def _check_expired_subscription_followups(self, db: AsyncSession):
         if not NotificationSettingsService.are_notifications_globally_enabled():
@@ -884,7 +823,7 @@ class MonitoringService:
                 )
 
         except Exception as e:
-            logger.error(f'Ошибка проверки напоминаний об истекшей подписке: {e}')
+            logger.error('Ошибка проверки напоминаний об истекшей подписке', error=e)
 
     async def _get_expiring_paid_subscriptions(self, db: AsyncSession, days_before: int) -> list[Subscription]:
         current_time = datetime.utcnow()
@@ -906,9 +845,9 @@ class MonitoringService:
             )
         )
 
-        logger.debug(f'🔍 Поиск платных подписок, истекающих в ближайшие {days_before} дней')
-        logger.debug(f'📅 Текущее время: {current_time}')
-        logger.debug(f'📅 Пороговая дата: {threshold_date}')
+        logger.debug('🔍 Поиск платных подписок, истекающих в ближайшие дней', days_before=days_before)
+        logger.debug('📅 Текущее время', current_time=current_time)
+        logger.debug('📅 Пороговая дата', threshold_date=threshold_date)
 
         all_subscriptions = result.scalars().all()
 
@@ -919,9 +858,9 @@ class MonitoringService:
 
         excluded_count = len(all_subscriptions) - len(subscriptions)
         if excluded_count > 0:
-            logger.debug(f'🔄 Исключено {excluded_count} суточных подписок из уведомлений')
+            logger.debug('🔄 Исключено суточных подписок из уведомлений', excluded_count=excluded_count)
 
-        logger.info(f'📊 Найдено {len(subscriptions)} платных подписок для уведомлений')
+        logger.info('📊 Найдено платных подписок для уведомлений', subscriptions_count=len(subscriptions))
 
         return subscriptions
 
@@ -959,9 +898,7 @@ class MonitoringService:
             offer = await get_latest_claimed_offer_for_user(db, user.id, source)
         except Exception as lookup_error:  # pragma: no cover - defensive logging
             logger.warning(
-                'Failed to resolve latest claimed promo offer for user %s: %s',
-                user.id,
-                lookup_error,
+                'Failed to resolve latest claimed promo offer for user', user_id=user.id, lookup_error=lookup_error
             )
             offer = None
 
@@ -991,17 +928,12 @@ class MonitoringService:
                 details={'reason': 'autopay_consumed'},
             )
         except Exception as log_error:  # pragma: no cover - defensive logging
-            logger.warning(
-                'Failed to record promo offer autopay log for user %s: %s',
-                user.id,
-                log_error,
-            )
+            logger.warning('Failed to record promo offer autopay log for user', user_id=user.id, log_error=log_error)
             try:
                 await db.rollback()
             except Exception as rollback_error:  # pragma: no cover - defensive logging
                 logger.warning(
-                    'Failed to rollback session after promo offer autopay log failure: %s',
-                    rollback_error,
+                    'Failed to rollback session after promo offer autopay log failure', rollback_error=rollback_error
                 )
 
     async def _process_autopayments(self, db: AsyncSession):
@@ -1033,9 +965,7 @@ class MonitoringService:
                 # (DailySubscriptionService), глобальный autopay на них не распространяется
                 if sub.tariff and getattr(sub.tariff, 'is_daily', False):
                     logger.debug(
-                        'Пропускаем суточную подписку %s (тариф %s) в глобальном autopay',
-                        sub.id,
-                        sub.tariff.name,
+                        'Пропускаем суточную подписку (тариф) в глобальном autopay', sub_id=sub.id, name=sub.tariff.name
                     )
                     continue
 
@@ -1051,8 +981,7 @@ class MonitoringService:
 
                 if is_recently_updated_by_webhook(subscription):
                     logger.debug(
-                        'Пропуск автоплатежа подписки %s: обновлена вебхуком недавно',
-                        subscription.id,
+                        'Пропуск автоплатежа подписки : обновлена вебхуком недавно', subscription_id=subscription.id
                     )
                     continue
 
@@ -1107,10 +1036,10 @@ class MonitoringService:
                         processed_count += 1
                         self._notified_users.add(autopay_key)
                         logger.info(
-                            '💳 Автопродление подписки пользователя %s успешно (списано %s, скидка %s%%)',
-                            user_identifier,
-                            charge_amount,
-                            promo_discount_percent,
+                            '💳 Автопродление подписки пользователя успешно (списано , скидка %)',
+                            user_identifier=user_identifier,
+                            charge_amount=charge_amount,
+                            promo_discount_percent=promo_discount_percent,
                         )
                     else:
                         failed_count += 1
@@ -1121,7 +1050,9 @@ class MonitoringService:
                                 user=user,
                                 reason='Ошибка списания средств',
                             )
-                        logger.warning(f'💳 Ошибка списания средств для автопродления пользователя {user_identifier}')
+                        logger.warning(
+                            '💳 Ошибка списания средств для автопродления пользователя', user_identifier=user_identifier
+                        )
                 else:
                     failed_count += 1
 
@@ -1134,15 +1065,15 @@ class MonitoringService:
                         if await cache.exists(cooldown_key):
                             should_notify = False
                             logger.debug(
-                                '💳 Пропуск уведомления о недостаточном балансе для пользователя %s — кулдаун активен',
-                                user_identifier,
+                                '💳 Пропуск уведомления о недостаточном балансе для пользователя — кулдаун активен',
+                                user_identifier=user_identifier,
                             )
                     except Exception as redis_err:
                         # Fallback: если Redis недоступен — отправляем уведомление
                         logger.warning(
-                            '⚠️ Ошибка проверки кулдауна в Redis для пользователя %s: %s. Отправляем уведомление.',
-                            user_identifier,
-                            redis_err,
+                            '⚠️ Ошибка проверки кулдауна в Redis для пользователя : . Отправляем уведомление.',
+                            user_identifier=user_identifier,
+                            redis_err=redis_err,
                         )
 
                     if should_notify:
@@ -1163,12 +1094,14 @@ class MonitoringService:
                             )
                         except Exception as redis_err:
                             logger.warning(
-                                '⚠️ Не удалось установить кулдаун в Redis для пользователя %s: %s',
-                                user_identifier,
-                                redis_err,
+                                '⚠️ Не удалось установить кулдаун в Redis для пользователя',
+                                user_identifier=user_identifier,
+                                redis_err=redis_err,
                             )
 
-                    logger.warning(f'💳 Недостаточно средств для автопродления у пользователя {user_identifier}')
+                    logger.warning(
+                        '💳 Недостаточно средств для автопродления у пользователя', user_identifier=user_identifier
+                    )
 
             if processed_count > 0 or failed_count > 0:
                 await self._log_monitoring_event(
@@ -1179,7 +1112,7 @@ class MonitoringService:
                 )
 
         except Exception as e:
-            logger.error(f'Ошибка обработки автоплатежей: {e}')
+            logger.error('Ошибка обработки автоплатежей', error=e)
 
     async def _send_subscription_expired_notification(self, user: User) -> bool:
         try:
@@ -1212,16 +1145,14 @@ class MonitoringService:
             if self._handle_unreachable_user(user, exc, 'уведомление об истечении подписки'):
                 return True
             logger.error(
-                'Ошибка Telegram API при отправке уведомления об истечении подписки пользователю %s: %s',
-                user.telegram_id,
-                exc,
+                'Ошибка Telegram API при отправке уведомления об истечении подписки пользователю',
+                telegram_id=user.telegram_id,
+                exc=exc,
             )
             return False
         except Exception as e:
             logger.error(
-                'Ошибка отправки уведомления об истечении подписки пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Ошибка отправки уведомления об истечении подписки пользователю', telegram_id=user.telegram_id, e=e
             )
             return False
 
@@ -1281,23 +1212,19 @@ class MonitoringService:
             if self._handle_unreachable_user(user, exc, 'уведомление об истекающей подписке'):
                 return True
             logger.error(
-                'Ошибка Telegram API при отправке уведомления об истечении подписки пользователю %s: %s',
-                user.telegram_id,
-                exc,
+                'Ошибка Telegram API при отправке уведомления об истечении подписки пользователю',
+                telegram_id=user.telegram_id,
+                exc=exc,
             )
             return False
         except TelegramNetworkError as e:
             logger.warning(
-                'Таймаут отправки уведомления об истечении подписки пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Таймаут отправки уведомления об истечении подписки пользователю', telegram_id=user.telegram_id, e=e
             )
             return False
         except Exception as e:
             logger.error(
-                'Ошибка отправки уведомления об истечении подписки пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Ошибка отправки уведомления об истечении подписки пользователю', telegram_id=user.telegram_id, e=e
             )
             return False
 
@@ -1337,105 +1264,23 @@ class MonitoringService:
             if self._handle_unreachable_user(user, exc, 'уведомление о завершении тестовой подписки'):
                 return True
             logger.error(
-                'Ошибка Telegram API при отправке уведомления о завершении тестовой подписки пользователю %s: %s',
-                user.telegram_id,
-                exc,
+                'Ошибка Telegram API при отправке уведомления о завершении тестовой подписки пользователю',
+                telegram_id=user.telegram_id,
+                exc=exc,
             )
             return False
         except TelegramNetworkError as e:
             logger.warning(
-                'Таймаут отправки уведомления об окончании тестовой подписки пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Таймаут отправки уведомления об окончании тестовой подписки пользователю',
+                telegram_id=user.telegram_id,
+                e=e,
             )
             return False
         except Exception as e:
             logger.error(
-                'Ошибка отправки уведомления об окончании тестовой подписки пользователю %s: %s',
-                user.telegram_id,
-                e,
-            )
-            return False
-
-    async def _send_trial_inactive_notification(self, user: User, subscription: Subscription, hours: int) -> bool:
-        try:
-            texts = get_texts(user.language)
-            if hours >= 24:
-                template = texts.get(
-                    'TRIAL_INACTIVE_24H',
-                    (
-                        '⏳ <b>Вы ещё не подключились к VPN</b>\n\n'
-                        'Прошли сутки с активации тестового периода, но трафик не зафиксирован.'
-                        '\n\nНажмите кнопку ниже, чтобы подключиться.'
-                    ),
-                )
-            else:
-                template = texts.get(
-                    'TRIAL_INACTIVE_1H',
-                    (
-                        '⏳ <b>Прошёл час, а подключения нет</b>\n\n'
-                        'Если возникли сложности с запуском — воспользуйтесь инструкциями.'
-                    ),
-                )
-
-            message = template.format(
-                price=settings.format_price(settings.PRICE_30_DAYS),
-                end_date=format_local_datetime(subscription.end_date, '%d.%m.%Y %H:%M'),
-            )
-
-            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        build_miniapp_or_callback_button(
-                            text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
-                            callback_data='subscription_connect',
-                        )
-                    ],
-                    [
-                        build_miniapp_or_callback_button(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('SUPPORT_BUTTON', '🆘 Поддержка'), callback_data='menu_support'
-                        )
-                    ],
-                ]
-            )
-
-            await self._send_message_with_logo(
-                chat_id=user.telegram_id,
-                text=message,
-                parse_mode='HTML',
-                reply_markup=keyboard,
-            )
-            return True
-
-        except (TelegramForbiddenError, TelegramBadRequest) as exc:
-            if self._handle_unreachable_user(user, exc, 'уведомление о бездействии на тесте'):
-                return True
-            logger.error(
-                'Ошибка Telegram API при отправке уведомления об отсутствии подключения пользователю %s: %s',
-                user.telegram_id,
-                exc,
-            )
-            return False
-        except TelegramNetworkError as e:
-            logger.warning(
-                'Таймаут отправки уведомления об отсутствии подключения пользователю %s: %s',
-                user.telegram_id,
-                e,
-            )
-            return False
-        except Exception as e:
-            logger.error(
-                'Ошибка отправки уведомления об отсутствии подключения пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Ошибка отправки уведомления об окончании тестовой подписки пользователю',
+                telegram_id=user.telegram_id,
+                e=e,
             )
             return False
 
@@ -1489,23 +1334,23 @@ class MonitoringService:
             if self._handle_unreachable_user(user, exc, 'уведомление об отписке от канала'):
                 return True
             logger.error(
-                'Ошибка Telegram API при отправке уведомления об отписке от канала пользователю %s: %s',
-                user.telegram_id,
-                exc,
+                'Ошибка Telegram API при отправке уведомления об отписке от канала пользователю',
+                telegram_id=user.telegram_id,
+                exc=exc,
             )
             return False
         except TelegramNetworkError as error:
             logger.warning(
-                'Таймаут отправки уведомления об отписке от канала пользователю %s: %s',
-                user.telegram_id,
-                error,
+                'Таймаут отправки уведомления об отписке от канала пользователю',
+                telegram_id=user.telegram_id,
+                error=error,
             )
             return False
         except Exception as error:
             logger.error(
-                'Ошибка отправки уведомления об отписке от канала пользователю %s: %s',
-                user.telegram_id,
-                error,
+                'Ошибка отправки уведомления об отписке от канала пользователю',
+                telegram_id=user.telegram_id,
+                error=error,
             )
             return False
 
@@ -1560,23 +1405,19 @@ class MonitoringService:
             if self._handle_unreachable_user(user, exc, 'напоминание об истекшей подписке'):
                 return True
             logger.error(
-                'Ошибка Telegram API при отправке напоминания об истекшей подписке пользователю %s: %s',
-                user.telegram_id,
-                exc,
+                'Ошибка Telegram API при отправке напоминания об истекшей подписке пользователю',
+                telegram_id=user.telegram_id,
+                exc=exc,
             )
             return False
         except TelegramNetworkError as e:
             logger.warning(
-                'Таймаут отправки напоминания об истекшей подписке пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Таймаут отправки напоминания об истекшей подписке пользователю', telegram_id=user.telegram_id, e=e
             )
             return False
         except Exception as e:
             logger.error(
-                'Ошибка отправки напоминания об истекшей подписке пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Ошибка отправки напоминания об истекшей подписке пользователю', telegram_id=user.telegram_id, e=e
             )
             return False
 
@@ -1659,24 +1500,16 @@ class MonitoringService:
             if self._handle_unreachable_user(user, exc, 'скидочное уведомление'):
                 return True
             logger.error(
-                'Ошибка Telegram API при отправке скидочного уведомления пользователю %s: %s',
-                user.telegram_id,
-                exc,
+                'Ошибка Telegram API при отправке скидочного уведомления пользователю',
+                telegram_id=user.telegram_id,
+                exc=exc,
             )
             return False
         except TelegramNetworkError as e:
-            logger.warning(
-                'Таймаут отправки скидочного уведомления пользователю %s: %s',
-                user.telegram_id,
-                e,
-            )
+            logger.warning('Таймаут отправки скидочного уведомления пользователю', telegram_id=user.telegram_id, e=e)
             return False
         except Exception as e:
-            logger.error(
-                'Ошибка отправки скидочного уведомления пользователю %s: %s',
-                user.telegram_id,
-                e,
-            )
+            logger.error('Ошибка отправки скидочного уведомления пользователю', telegram_id=user.telegram_id, e=e)
             return False
 
     async def _send_autopay_success_notification(self, user: User, amount: int, days: int):
@@ -1691,22 +1524,16 @@ class MonitoringService:
         except (TelegramForbiddenError, TelegramBadRequest) as exc:
             if not self._handle_unreachable_user(user, exc, 'уведомление об успешном автоплатеже'):
                 logger.error(
-                    'Ошибка Telegram API при отправке уведомления об автоплатеже пользователю %s: %s',
-                    user.telegram_id,
-                    exc,
+                    'Ошибка Telegram API при отправке уведомления об автоплатеже пользователю',
+                    telegram_id=user.telegram_id,
+                    exc=exc,
                 )
         except TelegramNetworkError as e:
             logger.warning(
-                'Таймаут отправки уведомления об автоплатеже пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Таймаут отправки уведомления об автоплатеже пользователю', telegram_id=user.telegram_id, e=e
             )
         except Exception as e:
-            logger.error(
-                'Ошибка отправки уведомления об автоплатеже пользователю %s: %s',
-                user.telegram_id,
-                e,
-            )
+            logger.error('Ошибка отправки уведомления об автоплатеже пользователю', telegram_id=user.telegram_id, e=e)
 
     async def _send_autopay_failed_notification(self, user: User, balance: int, required: int):
         try:
@@ -1734,21 +1561,17 @@ class MonitoringService:
         except (TelegramForbiddenError, TelegramBadRequest) as exc:
             if not self._handle_unreachable_user(user, exc, 'уведомление о неудачном автоплатеже'):
                 logger.error(
-                    'Ошибка Telegram API при отправке уведомления о неудачном автоплатеже пользователю %s: %s',
-                    user.telegram_id,
-                    exc,
+                    'Ошибка Telegram API при отправке уведомления о неудачном автоплатеже пользователю',
+                    telegram_id=user.telegram_id,
+                    exc=exc,
                 )
         except TelegramNetworkError as e:
             logger.warning(
-                'Таймаут отправки уведомления о неудачном автоплатеже пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Таймаут отправки уведомления о неудачном автоплатеже пользователю', telegram_id=user.telegram_id, e=e
             )
         except Exception as e:
             logger.error(
-                'Ошибка отправки уведомления о неудачном автоплатеже пользователю %s: %s',
-                user.telegram_id,
-                e,
+                'Ошибка отправки уведомления о неудачном автоплатеже пользователю', telegram_id=user.telegram_id, e=e
             )
 
     async def _cleanup_inactive_users(self, db: AsyncSession):
@@ -1773,10 +1596,10 @@ class MonitoringService:
                     f'Удалено {deleted_count} неактивных пользователей',
                     {'deleted_count': deleted_count},
                 )
-                logger.info(f'🗑️ Удалено {deleted_count} неактивных пользователей')
+                logger.info('🗑️ Удалено неактивных пользователей', deleted_count=deleted_count)
 
         except Exception as e:
-            logger.error(f'Ошибка очистки неактивных пользователей: {e}')
+            logger.error('Ошибка очистки неактивных пользователей', error=e)
 
     async def _sync_with_remnawave(self, db: AsyncSession):
         try:
@@ -1796,7 +1619,7 @@ class MonitoringService:
                 )
 
         except Exception as e:
-            logger.error(f'Ошибка синхронизации с RemnaWave: {e}')
+            logger.error('Ошибка синхронизации с RemnaWave', error=e)
             await self._log_monitoring_event(
                 db,
                 'remnawave_sync_error',
@@ -1886,7 +1709,9 @@ class MonitoringService:
                         # commit after each to persist timestamp and avoid duplicate reminders on crash
                         await db.commit()
                 except Exception as notify_error:
-                    logger.error(f'Ошибка отправки SLA-уведомления по тикету {ticket.id}: {notify_error}')
+                    logger.error(
+                        'Ошибка отправки SLA-уведомления по тикету', ticket_id=ticket.id, notify_error=notify_error
+                    )
 
             if reminders_sent > 0:
                 await self._log_monitoring_event(
@@ -1896,7 +1721,7 @@ class MonitoringService:
                     {'count': reminders_sent},
                 )
         except Exception as e:
-            logger.error(f'Ошибка проверки SLA тикетов: {e}')
+            logger.error('Ошибка проверки SLA тикетов', error=e)
 
     async def _sla_loop(self):
         try:
@@ -1910,12 +1735,12 @@ class MonitoringService:
                         await self._check_ticket_sla(db)
                         await db.commit()
                     except Exception as e:
-                        logger.error(f'Ошибка в SLA-проверке: {e}')
+                        logger.error('Ошибка в SLA-проверке', error=e)
                         await db.rollback()
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f'Ошибка в SLA-цикле: {e}')
+                logger.error('Ошибка в SLA-цикле', error=e)
             await asyncio.sleep(interval_seconds)
 
     async def _log_monitoring_event(
@@ -1928,7 +1753,7 @@ class MonitoringService:
             await db.commit()
 
         except Exception as e:
-            logger.error(f'Ошибка логирования события мониторинга: {e}')
+            logger.error('Ошибка логирования события мониторинга', error=e)
 
     async def get_monitoring_status(self, db: AsyncSession) -> dict[str, Any]:
         try:
@@ -1968,7 +1793,7 @@ class MonitoringService:
             }
 
         except Exception as e:
-            logger.error(f'Ошибка получения статуса мониторинга: {e}')
+            logger.error('Ошибка получения статуса мониторинга', error=e)
             return {
                 'is_running': self.is_running,
                 'last_update': datetime.utcnow(),
@@ -1986,8 +1811,7 @@ class MonitoringService:
             for subscription in expired_subscriptions:
                 if is_recently_updated_by_webhook(subscription):
                     logger.debug(
-                        'Пропуск force-check подписки %s: обновлена вебхуком недавно',
-                        subscription.id,
+                        'Пропуск force-check подписки : обновлена вебхуком недавно', subscription_id=subscription.id
                     )
                     continue
                 await deactivate_subscription(db, subscription)
@@ -2014,7 +1838,7 @@ class MonitoringService:
             return {'expired': expired_count, 'expiring': expiring_count, 'autopay_ready': autopay_processed}
 
         except Exception as e:
-            logger.error(f'Ошибка принудительной проверки подписок: {e}')
+            logger.error('Ошибка принудительной проверки подписок', error=e)
             return {'expired': 0, 'expiring': 0, 'autopay_ready': 0}
 
     async def get_monitoring_logs(
@@ -2050,7 +1874,7 @@ class MonitoringService:
             ]
 
         except Exception as e:
-            logger.error(f'Ошибка получения логов мониторинга: {e}')
+            logger.error('Ошибка получения логов мониторинга', error=e)
             return []
 
     async def get_monitoring_logs_count(self, db: AsyncSession, event_type: str | None = None) -> int:
@@ -2068,7 +1892,7 @@ class MonitoringService:
             return count or 0
 
         except Exception as e:
-            logger.error(f'Ошибка получения количества логов: {e}')
+            logger.error('Ошибка получения количества логов', error=e)
             return 0
 
     async def get_monitoring_event_types(self, db: AsyncSession) -> list[str]:
@@ -2085,7 +1909,7 @@ class MonitoringService:
             return [row[0] for row in result.fetchall() if row[0]]
 
         except Exception as e:
-            logger.error(f'Ошибка получения списка типов событий мониторинга: {e}')
+            logger.error('Ошибка получения списка типов событий мониторинга', error=e)
             return []
 
     async def cleanup_old_logs(self, db: AsyncSession, days: int = 30) -> int:
@@ -2102,14 +1926,14 @@ class MonitoringService:
             await db.commit()
 
             if days == 0:
-                logger.info(f'🗑️ Удалены все логи мониторинга ({deleted_count} записей)')
+                logger.info('🗑️ Удалены все логи мониторинга ( записей)', deleted_count=deleted_count)
             else:
-                logger.info(f'🗑️ Удалено {deleted_count} старых записей логов (старше {days} дней)')
+                logger.info('🗑️ Удалено старых записей логов (старше дней)', deleted_count=deleted_count, days=days)
 
             return deleted_count
 
         except Exception as e:
-            logger.error(f'Ошибка очистки логов: {e}')
+            logger.error('Ошибка очистки логов', error=e)
             await db.rollback()
             return 0
 
