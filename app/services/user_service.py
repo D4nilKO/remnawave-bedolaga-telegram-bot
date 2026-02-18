@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -209,7 +209,7 @@ class UserService:
                 'subscription': subscription,
                 'transactions_count': transactions_count,
                 'is_admin': settings.is_admin(user.telegram_id, user.email),
-                'registration_days': (datetime.utcnow() - user.created_at).days,
+                'registration_days': (datetime.now(UTC) - user.created_at).days,
             }
 
         except Exception as e:
@@ -305,7 +305,7 @@ class UserService:
         """Возвращает пользователей с истекшей подпиской и достаточным балансом."""
         try:
             offset = (page - 1) * limit
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
 
             base_filters = [
                 User.balance_kopeks >= min_balance_kopeks,
@@ -457,6 +457,7 @@ class UserService:
                     AdvertisingCampaign,
                     AdvertisingCampaign.id == latest_campaign.c.campaign_id,
                 )
+                .options(selectinload(User.subscription))
                 .order_by(
                     AdvertisingCampaign.name.asc(),
                     latest_campaign.c.created_at.desc(),
@@ -584,7 +585,7 @@ class UserService:
 
             user.promo_group_id = promo_group.id
             user.promo_group = promo_group
-            user.updated_at = datetime.utcnow()
+            user.updated_at = datetime.now(UTC)
 
             await db.commit()
             await db.refresh(user)
@@ -699,11 +700,9 @@ class UserService:
             await update_user(db, user, status=UserStatus.ACTIVE.value)
 
             if user.subscription:
-                from datetime import datetime
-
                 from app.database.models import SubscriptionStatus
 
-                if user.subscription.end_date > datetime.utcnow():
+                if user.subscription.end_date > datetime.now(UTC):
                     user.subscription.status = SubscriptionStatus.ACTIVE.value
                     await db.commit()
                     await db.refresh(user.subscription)
@@ -1228,9 +1227,9 @@ class UserService:
             subscription = await get_subscription_by_user_id(db, user_id)
             transactions_count = await get_user_transactions_count(db, user_id)
 
-            days_since_registration = (datetime.utcnow() - user.created_at).days
+            days_since_registration = (datetime.now(UTC) - user.created_at).days
 
-            days_since_activity = (datetime.utcnow() - user.last_activity).days if user.last_activity else None
+            days_since_activity = (datetime.now(UTC) - user.last_activity).days if user.last_activity else None
 
             return {
                 'user_id': user.id,
@@ -1283,7 +1282,7 @@ class UserService:
                     continue
 
                 if days_inactive and user.last_activity:
-                    inactive_threshold = datetime.utcnow() - timedelta(days=days_inactive)
+                    inactive_threshold = datetime.now(UTC) - timedelta(days=days_inactive)
                     if user.last_activity > inactive_threshold:
                         continue
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import structlog
 from aiogram import Bot, Dispatcher, F, types
@@ -307,7 +307,7 @@ async def _continue_registration_after_language(
                 await state.set_data(data)
                 logger.info('✅ LANGUAGE: Реферер найден', referrer_id=referrer.id)
 
-        if settings.SKIP_REFERRAL_CODE or data.get('referral_code'):
+        if settings.SKIP_REFERRAL_CODE or data.get('referral_code') or data.get('referrer_id'):
             await _complete_registration_wrapper()
         else:
             try:
@@ -391,6 +391,12 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
                 start_parameter=campaign.start_parameter,
             )
             await state.update_data(campaign_id=campaign.id)
+            if campaign.partner_user_id:
+                await state.update_data(referrer_id=campaign.partner_user_id)
+                logger.info(
+                    '👤 Кампания привязана к партнёру',
+                    partner_user_id=campaign.partner_user_id,
+                )
         else:
             referral_code = start_parameter
             logger.info('🔎 Найден реферальный код', referral_code=referral_code)
@@ -439,10 +445,10 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             logger.info('📝 Фамилия обновлена', old_last_name=old_last_name, last_name=user.last_name)
             profile_updated = True
 
-        user.last_activity = datetime.utcnow()
+        user.last_activity = datetime.now(UTC)
 
         if profile_updated:
-            user.updated_at = datetime.utcnow()
+            user.updated_at = datetime.now(UTC)
             await db.commit()
             await db.refresh(user)
             logger.info('💾 Профиль пользователя обновлен', telegram_id=user.telegram_id)
@@ -589,8 +595,8 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             user.username = message.from_user.username
             user.first_name = message.from_user.first_name
             user.last_name = message.from_user.last_name
-            user.updated_at = datetime.utcnow()
-            user.last_activity = datetime.utcnow()
+            user.updated_at = datetime.now(UTC)
+            user.last_activity = datetime.now(UTC)
 
             from app.utils.user_utils import generate_unique_referral_code
 
@@ -796,8 +802,8 @@ async def _continue_registration_after_rules(
             logger.info('✅ Реферер найден', referrer_id=referrer.id)
 
         await complete_registration_from_callback(callback, state, db)
-    elif settings.SKIP_REFERRAL_CODE:
-        logger.info('⚙️ SKIP_REFERRAL_CODE включен - пропускаем запрос реферального кода')
+    elif settings.SKIP_REFERRAL_CODE or data.get('referrer_id'):
+        logger.info('⚙️ Пропускаем запрос реферального кода')
         await complete_registration_from_callback(callback, state, db)
     else:
         try:
@@ -934,8 +940,8 @@ async def process_privacy_policy_accept(callback: types.CallbackQuery, state: FS
                     logger.info('✅ Реферер найден', referrer_id=referrer.id)
 
                 await complete_registration_from_callback(callback, state, db)
-            elif settings.SKIP_REFERRAL_CODE:
-                logger.info('⚙️ SKIP_REFERRAL_CODE включен - пропускаем запрос реферального кода')
+            elif settings.SKIP_REFERRAL_CODE or data.get('referrer_id'):
+                logger.info('⚙️ Пропускаем запрос реферального кода')
                 await complete_registration_from_callback(callback, state, db)
             else:
                 try:
@@ -1177,10 +1183,8 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
         existing_user.balance_kopeks = 0
         existing_user.has_had_paid_subscription = False
 
-        from datetime import datetime
-
-        existing_user.updated_at = datetime.utcnow()
-        existing_user.last_activity = datetime.utcnow()
+        existing_user.updated_at = datetime.now(UTC)
+        existing_user.last_activity = datetime.now(UTC)
 
         await db.commit()
         await db.refresh(existing_user, ['subscription'])
@@ -1211,10 +1215,8 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
         if referrer_id and not existing_user.referred_by_id:
             existing_user.referred_by_id = referrer_id
 
-        from datetime import datetime
-
-        existing_user.updated_at = datetime.utcnow()
-        existing_user.last_activity = datetime.utcnow()
+        existing_user.updated_at = datetime.now(UTC)
+        existing_user.last_activity = datetime.now(UTC)
 
         await db.commit()
         await db.refresh(existing_user, ['subscription'])
@@ -1443,10 +1445,8 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
         existing_user.balance_kopeks = 0
         existing_user.has_had_paid_subscription = False
 
-        from datetime import datetime
-
-        existing_user.updated_at = datetime.utcnow()
-        existing_user.last_activity = datetime.utcnow()
+        existing_user.updated_at = datetime.now(UTC)
+        existing_user.last_activity = datetime.now(UTC)
 
         await db.commit()
         await db.refresh(existing_user, ['subscription'])
@@ -1477,10 +1477,8 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
         if referrer_id and not existing_user.referred_by_id:
             existing_user.referred_by_id = referrer_id
 
-        from datetime import datetime
-
-        existing_user.updated_at = datetime.utcnow()
-        existing_user.last_activity = datetime.utcnow()
+        existing_user.updated_at = datetime.now(UTC)
+        existing_user.last_activity = datetime.now(UTC)
 
         await db.commit()
         await db.refresh(existing_user, ['subscription'])
@@ -1661,11 +1659,9 @@ def _get_subscription_status(user, texts):
     subscription = user.subscription
     actual_status = getattr(subscription, 'actual_status', None)
 
-    from datetime import datetime
-
     end_date = getattr(subscription, 'end_date', None)
     end_date_display = format_local_datetime(end_date, '%d.%m.%Y') if end_date else None
-    current_time = datetime.utcnow()
+    current_time = datetime.now(UTC)
 
     if actual_status == 'disabled':
         return texts.t('SUB_STATUS_DISABLED', '⚫ Отключена')
@@ -1927,7 +1923,7 @@ async def required_sub_channel_check(
             subscription = user.subscription
             if subscription.is_trial and subscription.status == SubscriptionStatus.DISABLED.value:
                 subscription.status = SubscriptionStatus.ACTIVE.value
-                subscription.updated_at = datetime.utcnow()
+                subscription.updated_at = datetime.now(UTC)
                 await db.commit()
                 await db.refresh(subscription)
                 logger.info(
@@ -2017,17 +2013,18 @@ async def required_sub_channel_check(
             await state.set_data(state_data)
 
             if settings.SKIP_RULES_ACCEPT:
-                if settings.SKIP_REFERRAL_CODE or state_data.get('referral_code'):
+                if settings.SKIP_REFERRAL_CODE or state_data.get('referral_code') or state_data.get('referrer_id'):
                     from app.utils.user_utils import generate_unique_referral_code
 
-                    # Проверяем реферальный код из ссылки
-                    referrer_id = None
-                    ref_code_from_link = state_data.get('referral_code')
-                    if ref_code_from_link:
-                        referrer = await get_user_by_referral_code(db, ref_code_from_link)
-                        if referrer:
-                            referrer_id = referrer.id
-                            logger.info('✅ CHANNEL CHECK: Реферер найден из ссылки', referrer_id=referrer.id)
+                    # Проверяем реферальный код из ссылки или партнёра кампании
+                    referrer_id = state_data.get('referrer_id')
+                    if not referrer_id:
+                        ref_code_from_link = state_data.get('referral_code')
+                        if ref_code_from_link:
+                            referrer = await get_user_by_referral_code(db, ref_code_from_link)
+                            if referrer:
+                                referrer_id = referrer.id
+                                logger.info('✅ CHANNEL CHECK: Реферер найден из ссылки', referrer_id=referrer.id)
 
                     referral_code = await generate_unique_referral_code(db, query.from_user.id)
 
