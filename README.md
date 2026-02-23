@@ -290,11 +290,11 @@ services:
       POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:-secure_password_123}'
       REDIS_URL: 'redis://redis:6379/0'
       TZ: 'Europe/Moscow'
-      LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
+      LOCALES_PATH: '${LOCALES_PATH:-/app/data/locales}'
     volumes:
       - ./logs:/app/logs:rw
       - ./data:/app/data:rw
-      - ./locales:/app/locales:rw
+      - ./locales:/app/data/locales:rw
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ./vpn_logo.png:/app/vpn_logo.png:ro
@@ -429,11 +429,11 @@ services:
       POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:-secure_password_123}'
       REDIS_URL: 'redis://redis:6379/0'
       TZ: 'Europe/Moscow'
-      LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
+      LOCALES_PATH: '${LOCALES_PATH:-/app/data/locales}'
     volumes:
       - ./logs:/app/logs:rw
       - ./data:/app/data:rw
-      - ./locales:/app/locales:rw
+      - ./locales:/app/data/locales:rw
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
       - ./vpn_logo.png:/app/vpn_logo.png:ro

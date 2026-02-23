@@ -62,17 +62,18 @@ class MenuLayoutStatsService:
             # user_id может быть telegram_id (из middleware) или internal id (из API)
             actual_user_id = None
             if user_id is not None:
-                from sqlalchemy import or_, select
-
                 from app.database.models import User
 
-                # Пробуем найти пользователя по telegram_id или по internal id
-                result = await db.execute(
-                    select(User.id).where(or_(User.telegram_id == user_id, User.id == user_id)).limit(1)
-                )
+                # Для callback middleware в user_id почти всегда telegram_id.
+                # Сначала ищем по telegram_id, затем fallback на internal User.id.
+                result = await db.execute(select(User.id).where(User.telegram_id == user_id).limit(1))
                 found_user_id = result.scalar_one_or_none()
+                if found_user_id is None:
+                    result = await db.execute(select(User.id).where(User.id == user_id).limit(1))
+                    found_user_id = result.scalar_one_or_none()
                 if found_user_id is not None:
-                    actual_user_id = found_user_id  # Используем internal User.id для FK
+                    # В button_click_logs всегда сохраняем internal users.id для FK.
+                    actual_user_id = found_user_id
 
             click_log = ButtonClickLog(
                 button_id=button_id,
