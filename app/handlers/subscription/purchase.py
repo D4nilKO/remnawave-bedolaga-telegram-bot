@@ -48,6 +48,7 @@ from app.services.trial_activation_service import (
     TrialPaymentChargeFailed,
     TrialPaymentInsufficientFunds,
     charge_trial_activation_if_required,
+    preview_trial_activation_charge,
     revert_trial_activation,
     rollback_trial_subscription_activation,
 )
@@ -739,7 +740,7 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
     texts = get_texts(db_user.language)
 
     # Проверка ограничения на покупку/продление подписки
-    if getattr(db_user, 'restriction_subscription', False):
+    if getattr(db_user, 'restriction_subscription', False) is True:
         reason = getattr(db_user, 'restriction_reason', None) or 'Действие ограничено администратором'
         support_url = settings.get_support_contact_url()
         keyboard = []
@@ -820,6 +821,33 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
         return
 
     # Бесплатный триал - текущее поведение
+    try:
+        preview_trial_activation_charge(db_user)
+    except TrialPaymentInsufficientFunds as error:
+        required_label = settings.format_price(error.required_amount)
+        balance_label = settings.format_price(error.balance_amount)
+        missing_label = settings.format_price(error.missing_amount)
+        message = texts.t(
+            'TRIAL_PAYMENT_INSUFFICIENT_FUNDS',
+            '⚠️ Недостаточно средств для активации триала.\n'
+            'Необходимо: {required}\nНа балансе: {balance}\n'
+            'Не хватает: {missing}\n\nПополните баланс и попробуйте снова.',
+        ).format(
+            required=required_label,
+            balance=balance_label,
+            missing=missing_label,
+        )
+
+        await callback.message.edit_text(
+            message,
+            reply_markup=get_insufficient_balance_keyboard(
+                db_user.language,
+                amount_kopeks=error.required_amount,
+            ),
+        )
+        await callback.answer()
+        return
+
     charged_amount = 0
     subscription: Subscription | None = None
     remnawave_user = None

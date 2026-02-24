@@ -1,5 +1,7 @@
 """Глобальные фикстуры и настройки окружения для тестов."""
 
+pytest_plugins = ('tests.fixtures.promocode_fixtures',)
+
 import asyncio
 import inspect
 import os
@@ -20,12 +22,21 @@ os.environ.setdefault('DATABASE_MODE', 'postgresql')
 os.environ.setdefault('DATABASE_URL', 'postgresql+asyncpg://user:pass@localhost/test_db')
 os.environ.setdefault('BOT_TOKEN', 'test-token')
 
-# Создаём заглушки для драйверов, которых может не быть в окружении тестов.
-sys.modules.setdefault('asyncpg', types.ModuleType('asyncpg'))
-sys.modules.setdefault('aiosqlite', types.ModuleType('aiosqlite'))
+# Создаём заглушки только если зависимость действительно недоступна.
+try:
+    import asyncpg  # noqa: F401
+except ImportError:
+    sys.modules.setdefault('asyncpg', types.ModuleType('asyncpg'))
+
+try:
+    import aiosqlite  # noqa: F401
+except ImportError:
+    sys.modules.setdefault('aiosqlite', types.ModuleType('aiosqlite'))
 
 # Эмуляция redis.asyncio, чтобы модуль кеша мог импортироваться.
-if 'redis.asyncio' not in sys.modules:
+try:
+    import redis.asyncio  # noqa: F401
+except ImportError:
     redis_module = types.ModuleType('redis')
     redis_async_module = types.ModuleType('redis.asyncio')
 
@@ -67,7 +78,9 @@ if 'redis.asyncio' not in sys.modules:
     sys.modules['redis.asyncio'] = redis_async_module
 
 # Минимальная реализация SDK YooKassa, чтобы импорт сервисов не падал.
-if 'yookassa' not in sys.modules:
+try:
+    import yookassa  # noqa: F401
+except ImportError:
     fake_yookassa = types.ModuleType('yookassa')
 
     class _FakeConfiguration:

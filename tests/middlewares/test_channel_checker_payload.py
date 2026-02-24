@@ -20,30 +20,21 @@ class TestRedisPayloadFunctions:
         """Тест успешного сохранения payload в Redis."""
         from app.middlewares import channel_checker
 
-        mock_redis = AsyncMock()
-        mock_redis.set = AsyncMock(return_value=True)
-        mock_redis.aclose = AsyncMock()
-
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(return_value=mock_redis)
-
+        with patch.object(channel_checker.cache, 'set', new=AsyncMock(return_value=True)) as mock_cache_set:
             result = await channel_checker.save_pending_payload_to_redis(123456, 'ref_test123')
 
             assert result is True
-            mock_redis.set.assert_awaited_once()
-            call_args = mock_redis.set.await_args
+            mock_cache_set.assert_awaited_once()
+            call_args = mock_cache_set.await_args
             assert 'pending_start_payload:123456' in call_args.args[0]
             assert call_args.args[1] == 'ref_test123'
-            assert call_args.kwargs.get('ex') == 3600
-            mock_redis.aclose.assert_awaited_once()
+            assert call_args.kwargs.get('expire') == 3600
 
     async def test_save_pending_payload_to_redis_failure(self, monkeypatch):
         """Тест обработки ошибки при сохранении в Redis."""
         from app.middlewares import channel_checker
 
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(side_effect=Exception('Redis connection failed'))
-
+        with patch.object(channel_checker.cache, 'set', new=AsyncMock(side_effect=Exception('Redis error'))):
             result = await channel_checker.save_pending_payload_to_redis(123456, 'ref_test123')
 
             assert result is False
@@ -52,30 +43,17 @@ class TestRedisPayloadFunctions:
         """Тест успешного получения payload из Redis."""
         from app.middlewares import channel_checker
 
-        mock_redis = AsyncMock()
-        mock_redis.get = AsyncMock(return_value=b'ref_test123')
-        mock_redis.aclose = AsyncMock()
-
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(return_value=mock_redis)
-
+        with patch.object(channel_checker.cache, 'get', new=AsyncMock(return_value='ref_test123')) as mock_cache_get:
             result = await channel_checker.get_pending_payload_from_redis(123456)
 
             assert result == 'ref_test123'
-            mock_redis.get.assert_awaited_once()
-            mock_redis.aclose.assert_awaited_once()
+            mock_cache_get.assert_awaited_once()
 
     async def test_get_pending_payload_from_redis_not_found(self, monkeypatch):
         """Тест когда payload не найден в Redis."""
         from app.middlewares import channel_checker
 
-        mock_redis = AsyncMock()
-        mock_redis.get = AsyncMock(return_value=None)
-        mock_redis.aclose = AsyncMock()
-
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(return_value=mock_redis)
-
+        with patch.object(channel_checker.cache, 'get', new=AsyncMock(return_value=None)):
             result = await channel_checker.get_pending_payload_from_redis(123456)
 
             assert result is None
@@ -84,9 +62,7 @@ class TestRedisPayloadFunctions:
         """Тест обработки ошибки при получении из Redis."""
         from app.middlewares import channel_checker
 
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(side_effect=Exception('Redis connection failed'))
-
+        with patch.object(channel_checker.cache, 'get', new=AsyncMock(side_effect=Exception('Redis error'))):
             result = await channel_checker.get_pending_payload_from_redis(123456)
 
             assert result is None
@@ -95,25 +71,17 @@ class TestRedisPayloadFunctions:
         """Тест удаления payload из Redis."""
         from app.middlewares import channel_checker
 
-        mock_redis = AsyncMock()
-        mock_redis.delete = AsyncMock(return_value=1)
-        mock_redis.aclose = AsyncMock()
-
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(return_value=mock_redis)
-
+        with patch.object(channel_checker.cache, 'delete', new=AsyncMock(return_value=True)) as mock_cache_delete:
             # Не должно бросать исключение
             await channel_checker.delete_pending_payload_from_redis(123456)
 
-            mock_redis.delete.assert_awaited_once()
+            mock_cache_delete.assert_awaited_once()
 
     async def test_delete_pending_payload_from_redis_handles_error(self, monkeypatch):
         """Тест что удаление не бросает исключение при ошибке."""
         from app.middlewares import channel_checker
 
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(side_effect=Exception('Redis error'))
-
+        with patch.object(channel_checker.cache, 'delete', new=AsyncMock(side_effect=Exception('Redis error'))):
             # Не должно бросать исключение
             await channel_checker.delete_pending_payload_from_redis(123456)
 
@@ -260,13 +228,7 @@ class TestPayloadIntegration:
         """Тест что payload восстанавливается из Redis если в FSM state его нет."""
         from app.middlewares.channel_checker import get_pending_payload_from_redis
 
-        mock_redis = AsyncMock()
-        mock_redis.get = AsyncMock(return_value=b'ref_from_redis')
-        mock_redis.aclose = AsyncMock()
-
-        with patch('app.middlewares.channel_checker.aioredis') as mock_aioredis:
-            mock_aioredis.from_url = MagicMock(return_value=mock_redis)
-
+        with patch('app.middlewares.channel_checker.cache.get', new=AsyncMock(return_value='ref_from_redis')):
             result = await get_pending_payload_from_redis(333444)
 
             assert result == 'ref_from_redis'

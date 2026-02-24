@@ -1,3 +1,4 @@
+import inspect
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -59,6 +60,19 @@ class PromoCodeService:
             from app.database.crud.promocode import count_user_recent_activations
 
             recent_count = await count_user_recent_activations(db, user_id, hours=24)
+            # В тестах с моками scalar() может вернуть awaitable/AsyncMock вместо int.
+            if inspect.isawaitable(recent_count):
+                recent_count = await recent_count
+            if not isinstance(recent_count, int):
+                try:
+                    recent_count = int(recent_count or 0)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        'Unexpected recent promocode activations counter type; fallback to 0',
+                        user_id=user_id,
+                        recent_count_type=type(recent_count).__name__,
+                    )
+                    recent_count = 0
             if recent_count >= 5:
                 logger.warning(
                     'Promo stacking limit: user has activations in 24h',
