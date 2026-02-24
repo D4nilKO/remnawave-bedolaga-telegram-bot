@@ -151,6 +151,15 @@ async def _process_campaign_bonus(
         if not campaign:
             return None
 
+        # Skip if user IS the campaign partner — prevent self-referral
+        if campaign.partner_user_id and campaign.partner_user_id == user.id:
+            logger.debug(
+                'Skipping campaign attribution: user is the campaign partner',
+                user_id=user.id,
+                campaign_id=campaign.id,
+            )
+            return None
+
         # Lock user row to prevent concurrent bonus application (race condition)
         await db.execute(select(User).where(User.id == user.id).with_for_update())
 
@@ -198,6 +207,30 @@ async def _process_campaign_bonus(
         except Exception:
             logger.exception('Failed to rollback after campaign bonus error', user_id=user.id)
         return None
+
+
+async def _process_referral_code(
+    db: AsyncSession,
+    user: User,
+    referral_code: str | None,
+) -> None:
+    """Set referred_by_id for user if referral_code is valid. Never raises."""
+    if not referral_code or user.referred_by_id:
+        return
+    try:
+        referrer = await get_user_by_referral_code(db, referral_code)
+        if not referrer:
+            return
+        if referrer.id == user.id:
+            return
+        if referrer.email and user.email and referrer.email.lower() == user.email.lower():
+            return
+        user.referred_by_id = referrer.id
+        await db.flush()
+        await process_referral_registration(db, user.id, referrer.id, bot=None)
+        logger.info('Referral applied from code', user_id=user.id, referrer_id=referrer.id, referral_code=referral_code)
+    except Exception as e:
+        logger.error('Failed to process referral code', error=e, referral_code=referral_code)
 
 
 async def _sync_subscription_from_panel_by_email(db: AsyncSession, user: User) -> None:
@@ -341,6 +374,16 @@ async def auth_telegram(
     tg_last_name = user_data.get('last_name')
     tg_language = user_data.get('language_code', 'ru')
 
+    # Resolve referral code to referrer ID for new users
+    referrer_id = None
+    if request.referral_code and not user:
+        try:
+            referrer = await get_user_by_referral_code(db, request.referral_code)
+            if referrer:
+                referrer_id = referrer.id
+        except Exception as e:
+            logger.warning('Failed to resolve referral code', referral_code=request.referral_code, error=e)
+
     if not user:
         # Create new user from Telegram initData
         logger.info('Creating new user from cabinet (initData): telegram_id', telegram_id=telegram_id)
@@ -351,6 +394,7 @@ async def auth_telegram(
             first_name=tg_first_name,
             last_name=tg_last_name,
             language=tg_language,
+            referred_by_id=referrer_id,
         )
         logger.info('User created successfully: id=, telegram_id', user_id=user.id, telegram_id=user.telegram_id)
     else:
@@ -383,6 +427,9 @@ async def auth_telegram(
     # Store refresh token
     await _store_refresh_token(db, user.id, response.refresh_token)
 
+    # Process referral code (before campaign bonus, which may also set referrer)
+    await _process_referral_code(db, user, request.referral_code)
+
     # Process campaign bonus
     response.campaign_bonus = await _process_campaign_bonus(db, user, request.campaign_slug)
     if response.campaign_bonus:
@@ -402,7 +449,7 @@ async def auth_telegram_widget(
     This endpoint validates data from Telegram Login Widget and returns
     JWT tokens for authenticated access.
     """
-    widget_data = request.model_dump(exclude={'campaign_slug'})
+    widget_data = request.model_dump(exclude={'campaign_slug', 'referral_code'})
 
     if not validate_telegram_login_widget(widget_data):
         raise HTTPException(
@@ -411,6 +458,16 @@ async def auth_telegram_widget(
         )
 
     user = await get_user_by_telegram_id(db, request.id)
+
+    # Resolve referral code to referrer ID for new users
+    referrer_id = None
+    if request.referral_code and not user:
+        try:
+            referrer = await get_user_by_referral_code(db, request.referral_code)
+            if referrer:
+                referrer_id = referrer.id
+        except Exception as e:
+            logger.warning('Failed to resolve referral code', referral_code=request.referral_code, error=e)
 
     if not user:
         # Create new user from Telegram data
@@ -424,6 +481,7 @@ async def auth_telegram_widget(
             first_name=request.first_name,
             last_name=request.last_name,
             language='ru',
+            referred_by_id=referrer_id,
         )
         logger.info('User created successfully: id=, telegram_id', user_id=user.id, telegram_id=user.telegram_id)
 
@@ -446,6 +504,9 @@ async def auth_telegram_widget(
 
     response = _create_auth_response(user)
     await _store_refresh_token(db, user.id, response.refresh_token)
+
+    # Process referral code (before campaign bonus, which may also set referrer)
+    await _process_referral_code(db, user, request.referral_code)
 
     # Process campaign bonus
     response.campaign_bonus = await _process_campaign_bonus(db, user, request.campaign_slug)

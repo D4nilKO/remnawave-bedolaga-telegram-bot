@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 
 import structlog
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.enums import ChatMemberStatus
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -37,6 +36,7 @@ from app.middlewares.channel_checker import (
 )
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.campaign_service import AdvertisingCampaignService
+from app.services.channel_subscription_service import channel_subscription_service
 from app.services.main_menu_button_service import MainMenuButtonService
 from app.services.pinned_message_service import (
     deliver_pinned_message_to_user,
@@ -1174,11 +1174,14 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
     if existing_user and existing_user.status == UserStatus.DELETED.value:
         logger.info('🔄 Восстанавливаем удаленного пользователя', from_user_id=callback.from_user.id)
 
+        # Prevent self-referral when partner re-registers via own campaign link
+        safe_referrer_id = referrer_id if referrer_id != existing_user.id else None
+
         existing_user.username = callback.from_user.username
         existing_user.first_name = callback.from_user.first_name
         existing_user.last_name = callback.from_user.last_name
         existing_user.language = language
-        existing_user.referred_by_id = referrer_id
+        existing_user.referred_by_id = safe_referrer_id
         existing_user.status = UserStatus.ACTIVE.value
         existing_user.balance_kopeks = 0
         existing_user.has_had_paid_subscription = False
@@ -1212,7 +1215,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
         logger.info('🔄 Обновляем существующего пользователя', from_user_id=callback.from_user.id)
         existing_user.status = UserStatus.ACTIVE.value
         existing_user.language = language
-        if referrer_id and not existing_user.referred_by_id:
+        if referrer_id and referrer_id != existing_user.id and not existing_user.referred_by_id:
             existing_user.referred_by_id = referrer_id
 
         existing_user.updated_at = datetime.now(UTC)
@@ -1222,7 +1225,7 @@ async def complete_registration_from_callback(callback: types.CallbackQuery, sta
         await db.refresh(existing_user, ['subscription'])
         user = existing_user
 
-    if referrer_id:
+    if referrer_id and referrer_id != user.id:
         try:
             await process_referral_registration(db, user.id, referrer_id, callback.bot)
             logger.info('✅ Реферальная регистрация обработана для', user_id=user.id)
@@ -1436,11 +1439,14 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
     if existing_user and existing_user.status == UserStatus.DELETED.value:
         logger.info('🔄 Восстанавливаем удаленного пользователя', from_user_id=message.from_user.id)
 
+        # Prevent self-referral when partner re-registers via own campaign link
+        safe_referrer_id = referrer_id if referrer_id != existing_user.id else None
+
         existing_user.username = message.from_user.username
         existing_user.first_name = message.from_user.first_name
         existing_user.last_name = message.from_user.last_name
         existing_user.language = language
-        existing_user.referred_by_id = referrer_id
+        existing_user.referred_by_id = safe_referrer_id
         existing_user.status = UserStatus.ACTIVE.value
         existing_user.balance_kopeks = 0
         existing_user.has_had_paid_subscription = False
@@ -1474,7 +1480,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
         logger.info('🔄 Обновляем существующего пользователя', from_user_id=message.from_user.id)
         existing_user.status = UserStatus.ACTIVE.value
         existing_user.language = language
-        if referrer_id and not existing_user.referred_by_id:
+        if referrer_id and referrer_id != existing_user.id and not existing_user.referred_by_id:
             existing_user.referred_by_id = referrer_id
 
         existing_user.updated_at = datetime.now(UTC)
@@ -1484,7 +1490,7 @@ async def complete_registration(message: types.Message, state: FSMContext, db: A
         await db.refresh(existing_user, ['subscription'])
         user = existing_user
 
-    if referrer_id:
+    if referrer_id and referrer_id != user.id:
         try:
             await process_referral_registration(db, user.id, referrer_id, message.bot)
             logger.info('✅ Реферальная регистрация обработана для', user_id=user.id)
@@ -1860,20 +1866,22 @@ async def required_sub_channel_check(
 
         texts = get_texts(language)
 
-        chat_member = await bot.get_chat_member(chat_id=settings.CHANNEL_SUB_ID, user_id=query.from_user.id)
+        # Ensure bot is set on service
+        if not channel_subscription_service.bot:
+            channel_subscription_service.bot = bot
 
-        if chat_member.status not in [
-            ChatMemberStatus.MEMBER,
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.CREATOR,
-        ]:
+        # Invalidate cache for fresh check (user just clicked "I subscribed")
+        await channel_subscription_service.invalidate_user_cache(query.from_user.id)
+
+        is_subscribed = await channel_subscription_service.is_user_subscribed_to_all(query.from_user.id)
+        if not is_subscribed:
             # НЕ удаляем payload - пользователь может попробовать снова после подписки
             logger.info(
-                "📦 CHANNEL CHECK: Подписка не подтверждена, payload '' сохранён для следующей попытки",
+                'CHANNEL CHECK: Подписка не подтверждена, payload сохранён для следующей попытки',
                 pending_start_payload=pending_start_payload,
             )
             return await query.answer(
-                texts.t('CHANNEL_SUBSCRIBE_REQUIRED_ALERT', '❌ Вы не подписались на канал!'),
+                texts.t('CHANNEL_SUBSCRIBE_REQUIRED_ALERT', 'Please subscribe to all required channels first!'),
                 show_alert=True,
             )
 
@@ -1989,7 +1997,7 @@ async def required_sub_channel_check(
                 custom_buttons=custom_buttons,
             )
 
-            if settings.ENABLE_LOGO_MODE:
+            if settings.ENABLE_LOGO_MODE and len(menu_text) <= 900:
                 _result = await bot.send_photo(
                     chat_id=query.from_user.id,
                     photo=get_logo_media(),
@@ -2046,7 +2054,7 @@ async def required_sub_channel_check(
                     logger.info('✅ CHANNEL CHECK: pending_start_payload удален из state после создания пользователя')
 
                     # Обрабатываем реферальную регистрацию
-                    if referrer_id:
+                    if referrer_id and referrer_id != user.id:
                         try:
                             await process_referral_registration(db, user.id, referrer_id, bot)
                             logger.info('✅ CHANNEL CHECK: Реферальная регистрация обработана для', user_id=user.id)
@@ -2082,7 +2090,7 @@ async def required_sub_channel_check(
                         custom_buttons=custom_buttons,
                     )
 
-                    if settings.ENABLE_LOGO_MODE:
+                    if settings.ENABLE_LOGO_MODE and len(menu_text) <= 900:
                         _result = await bot.send_photo(
                             chat_id=query.from_user.id,
                             photo=get_logo_media(),
@@ -2112,7 +2120,7 @@ async def required_sub_channel_check(
             else:
                 rules_text = await get_rules(language)
 
-                if settings.ENABLE_LOGO_MODE:
+                if settings.ENABLE_LOGO_MODE and len(rules_text) <= 900:
                     _result = await bot.send_photo(
                         chat_id=query.from_user.id,
                         photo=get_logo_media(),
