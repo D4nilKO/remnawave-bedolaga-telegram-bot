@@ -2,12 +2,11 @@
 from . import (
     backup,
     blacklist,
-    blocked_users,
     bot_configuration,
     bulk_ban,
     campaigns,
-    contests,
     daily_contests,
+    contests,
     faq,
     main,
     maintenance,
