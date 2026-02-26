@@ -63,7 +63,13 @@ def upgrade() -> None:
     if not needs_fix:
         return
 
+    # Удаляем существующий FK, чтобы безопасно чистить данные и менять тип.
+    if fk_name:
+        op.drop_constraint(fk_name, 'button_click_logs', type_='foreignkey')
+
     # Legacy-case: значения user_id хранили telegram_id, переносим в users.id.
+    # Делаем это только после снятия старого FK (обычно на users.telegram_id),
+    # иначе UPDATE может упасть на промежуточных значениях users.id.
     if fk_target == 'telegram_id':
         op.execute(
             """
@@ -73,10 +79,6 @@ def upgrade() -> None:
             WHERE logs.user_id = users.telegram_id
             """
         )
-
-    # Удаляем существующий FK, чтобы безопасно чистить данные и менять тип.
-    if fk_name:
-        op.drop_constraint(fk_name, 'button_click_logs', type_='foreignkey')
 
     # Убираем значения, которые не сопоставляются с users.id.
     op.execute(
