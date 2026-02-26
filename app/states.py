@@ -22,6 +22,7 @@ class SubscriptionStates(StatesGroup):
 
     # Состояния для простой подписки
     waiting_for_simple_subscription_payment_method = State()
+    waiting_for_simple_subscription_confirmation = State()
 
     # Состояния для кастомных дней/трафика при покупке тарифа
     selecting_custom_days = State()
@@ -111,6 +112,11 @@ class AdminStates(StatesGroup):
     creating_referral_contest_start = State()
     creating_referral_contest_end = State()
     creating_referral_contest_time = State()
+    adding_virtual_participant_name = State()
+    adding_virtual_participant_count = State()
+    editing_virtual_participant_count = State()
+    adding_mass_virtual_referrals = State()
+    adding_mass_virtual_count = State()
     editing_referral_contest_summary_times = State()
     editing_daily_contest_field = State()
     editing_daily_contest_value = State()
@@ -125,6 +131,8 @@ class AdminStates(StatesGroup):
 
     # Тестовое начисление реферального дохода
     test_referral_earning_input = State()
+    referral_diagnostics_period = State()
+    waiting_for_log_file = State()
 
     editing_rules_page = State()
     editing_privacy_policy = State()
