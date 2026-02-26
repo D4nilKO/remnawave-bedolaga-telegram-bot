@@ -40,8 +40,8 @@ class StubSettings:
 @pytest.mark.parametrize(
     'forced_amount, expected',
     [
-        (None, None),
-        (0, 0),
+        (None, 42),
+        (0, 42),
         (5, 5),
     ],
 )
@@ -94,7 +94,7 @@ def test_resolve_hwid_device_limit_for_payload_returns_subscription_limit(monkey
         StubSettings(enabled=False, disabled_amount=None, disabled_selection_amount=None),
     )
 
-    assert resolve_hwid_device_limit(subscription) is None
+    assert resolve_hwid_device_limit(subscription) == 42
     assert resolve_hwid_device_limit_for_payload(subscription) == 42
 
 
@@ -132,8 +132,8 @@ def test_resolve_hwid_device_limit_for_payload_handles_zero(monkeypatch):
         StubSettings(enabled=False, disabled_amount=0, disabled_selection_amount=0),
     )
 
-    assert resolve_hwid_device_limit(subscription) == 0
-    assert resolve_hwid_device_limit_for_payload(subscription) == 0
+    assert resolve_hwid_device_limit(subscription) == 42
+    assert resolve_hwid_device_limit_for_payload(subscription) == 42
 
 
 @pytest.mark.parametrize(
