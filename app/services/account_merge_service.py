@@ -612,6 +612,11 @@ async def execute_merge(
         secondary.telegram_id = None
         await db.flush()
         primary.telegram_id = transferred_tg_id
+        # Persist the value before the balance merge calls lock_user_for_update().
+        # That helper uses populate_existing=True and, with autoflush disabled,
+        # would otherwise reload the old NULL value from the database and silently
+        # discard the pending Telegram ID transfer.
+        await db.flush()
         logger.info(
             'Перенесён telegram_id',
             primary_id=primary.id,
